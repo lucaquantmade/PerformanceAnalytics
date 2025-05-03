@@ -943,7 +943,7 @@ with returns_tab:
     monthly_returns_df = pd.DataFrame()
     
     # Get data resampled to month-end
-    monthly_prices = heatmap_data.resample('ME')['StrategyValue'].last()
+    monthly_prices = heatmap_data.resample('M')['StrategyValue'].last()
     
     # Calculate month-to-month returns properly
     for year in sorted(heatmap_data.index.year.unique()):
@@ -1267,13 +1267,13 @@ with rolling_tab:
     
     # Process each timeframe separately to avoid losing data
     if not rolling_data_3m.empty:
-        rolling_monthly['rolling_3m_return'] = rolling_data_3m['rolling_3m_return'].resample('ME').mean()
+        rolling_monthly['rolling_3m_return'] = rolling_data_3m['rolling_3m_return'].resample('M').mean()
     
     if not rolling_data_1y.empty:
-        rolling_monthly['rolling_1y_return'] = rolling_data_1y['rolling_1y_return'].resample('ME').mean()
+        rolling_monthly['rolling_1y_return'] = rolling_data_1y['rolling_1y_return'].resample('M').mean()
         
     if not rolling_data_3y.empty:
-        rolling_monthly['rolling_3y_return'] = rolling_data_3y['rolling_3y_return'].resample('ME').mean()
+        rolling_monthly['rolling_3y_return'] = rolling_data_3y['rolling_3y_return'].resample('M').mean()
     
     # Function to create rolling returns plot
     def create_rolling_returns_plot(data, column, stats, color, period_name):
