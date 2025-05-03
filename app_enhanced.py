@@ -943,7 +943,16 @@ with returns_tab:
     monthly_returns_df = pd.DataFrame()
     
     # Get data resampled to month-end
-    monthly_prices = heatmap_data.resample('M')['StrategyValue'].last()
+    # Make sure index is proper DatetimeIndex before resampling
+    if not isinstance(heatmap_data.index, pd.DatetimeIndex):
+        heatmap_data.index = pd.to_datetime(heatmap_data.index)
+    
+    # Get data resampled to month-end
+    try:
+        monthly_prices = heatmap_data.resample('M')['StrategyValue'].last()
+    except ValueError:
+        # Fallback if resample fails
+        monthly_prices = heatmap_data.groupby(pd.Grouper(freq='M'))['StrategyValue'].last()
     
     # Calculate month-to-month returns properly
     for year in sorted(heatmap_data.index.year.unique()):
@@ -1675,3 +1684,4 @@ st.markdown("""
     <p>© 2024</p>
 </div>
 """, unsafe_allow_html=True) 
+
