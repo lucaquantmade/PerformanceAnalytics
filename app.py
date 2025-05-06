@@ -10,15 +10,115 @@ import os
 from PIL import Image
 import io
 import base64
+import seaborn as sns
+import matplotlib.gridspec as gridspec
+
+# Function to calculate recovery times from drawdowns
+def calculate_recovery_times(data):
+    """Calculate average and maximum recovery time from drawdowns"""
+    # Identify peaks (where the strategy value equals its cumulative max)
+    data['is_peak'] = (data['StrategyValue'] == data['Cummax'])
+    
+    # Identify recovery points
+    recovery_times = []
+    in_drawdown = False
+    drawdown_start = None
+    peak_value = None
+    
+    for i in range(len(data)):
+        if data['is_peak'].iloc[i] and not in_drawdown:
+            # At a new peak, not in drawdown
+            peak_value = data['StrategyValue'].iloc[i]
+        
+        elif not data['is_peak'].iloc[i] and not in_drawdown:
+            # Starting a drawdown
+            in_drawdown = True
+            drawdown_start = data.index[i]
+        
+        elif in_drawdown and data['StrategyValue'].iloc[i] >= peak_value:
+            # Recovered from drawdown
+            in_drawdown = False
+            recovery_end = data.index[i]
+            recovery_time = (recovery_end - drawdown_start).days
+            
+            # Only count significant drawdowns (e.g., > 5%)
+            max_drawdown_in_period = data.loc[drawdown_start:recovery_end, 'drawdown'].min()
+            if abs(max_drawdown_in_period) > 5:  # Only significant drawdowns > 5%
+                recovery_times.append(recovery_time)
+    
+    if not recovery_times:
+        return 0, 0  # No recovery times found
+    
+    avg_recovery = sum(recovery_times) / len(recovery_times)
+    max_recovery = max(recovery_times)
+    
+    return avg_recovery, max_recovery
+    
+# Function to create download link for plotly figures
+def get_image_download_link(fig, filename, text, width=1200, height=800, scale=2):
+    """
+    Generates a download link for a plotly figure as a high-res PNG with transparent background.
+    Checks for kaleido package and provides installation instructions if missing.
+    
+    Parameters:
+    -----------
+    fig : plotly.graph_objs.Figure
+        The plotly figure to export
+    filename : str
+        Name of the file to download
+    text : str
+        Label for the download button
+    width : int, optional
+        Width of the exported image in pixels (default: 1200)
+    height : int, optional
+        Height of the exported image in pixels (default: 800)
+    scale : int, optional
+        Scale factor for resolution (default: 2)
+    """
+    try:
+        # Set transparent background using rgba(0,0,0,0) and higher resolution
+        fig.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)'
+        )
+        
+        # Generate high-res PNG image
+        img_bytes = fig.to_image(format="png", width=width, height=height, scale=scale)
+        
+        # Create download button
+        return st.download_button(
+            label=text,
+            data=img_bytes,
+            file_name=filename,
+            mime="image/png",
+        )
+    except Exception as e:
+        if "kaleido" in str(e).lower():
+            st.warning("""
+            💡 Um Grafiken als PNG herunterzuladen, muss das Paket 'kaleido' installiert werden.
+            
+            Installation über die Kommandozeile:
+            ```
+            pip install -U kaleido
+            ```
+            
+            Nach der Installation starten Sie die App neu.
+            """)
+        else:
+            st.error(f"Fehler beim Exportieren der Grafik: {str(e)}")
+        return None
+
+# Use path that works both locally and in cloud
+base_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Set page configuration
 st.set_page_config(
-    page_title="Quantmade AI Quant Funds Strategie Dashboard",
+    page_title="Quantmade AI Quant Funds Strategy Dashboard",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# Apply custom CSS for improved styling
+# Apply custom CSS for improved styling 
 st.markdown("""
 <style>
     /* Main elements */
@@ -45,36 +145,72 @@ st.markdown("""
     
     /* Card container styling */
     .metric-card {
-        background-color: #f8f9fa;
+        background: linear-gradient(to bottom, #fff, #f9f9fa);
         border-radius: 6px;
-        padding: 1rem;
-        box-shadow: none;
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        margin-bottom: 1rem;
+        padding: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+        border: 1px solid #e6e6e6;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
     
-    .metric-row {
-        margin-bottom: 0.5rem;
+    .metric-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 3px 6px rgba(0,0,0,0.12);
+    }
+    
+    .metric-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 3px;
     }
     
     .metric-label {
-        font-weight: 600;
-        font-size: 0.875rem;
-        color: #5a5c69;
+        font-size: 11px;
+        color: #555;
+        font-weight: 500;
+        margin-bottom: 0;
+    }
+    
+    .metric-icon {
+        color: #777;
+        font-size: 10px;
+        padding: 2px;
+        background: #f0f5fa;
+        border-radius: 50%;
+        width: 18px;
+        height: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
     
     .metric-value {
-        font-size: 1.25rem;
+        font-size: 20px;
         font-weight: 700;
-        color: #2b3674;
+        line-height: 1.2;
+        display: flex;
+        align-items: center;
+        padding-top: 4px;
+        padding-bottom: 2px;
+        margin-top: auto;
     }
     
-    .metric-value.positive {
-        color: #10b981;
+    .positive-value {
+        color: #0fa76f;
     }
     
-    .metric-value.negative {
-        color: #ef4444;
+    .negative-value {
+        color: #e05260;
+    }
+    
+    .trend-indicator {
+        font-size: 12px;
+        margin-right: 2px;
     }
     
     .metric-container {
@@ -151,8 +287,305 @@ st.markdown("""
             padding: 10px;
         }
     }
+    
+    /* Add modern card-based styling for metrics */
+    .kpi-grid-container {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 8px;
+        margin-bottom: 14px;
+    }
+    
+    .kpi-card {
+        background-color: white;
+        border-radius: 5px;
+        padding: 10px 8px;
+        box-shadow: rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.06) 0px 1px 2px 0px;
+        border: 1px solid #eaeaea;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        aspect-ratio: 1/1;
+    }
+    
+    .kpi-card:hover {
+        transform: translateY(-2px);
+        box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+    }
+    
+    .kpi-category {
+        font-size: 8px;
+        font-weight: 500;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 3px;
+    }
+    
+    .kpi-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+    }
+    
+    .kpi-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        font-size: 11px;
+    }
+    
+    .kpi-value-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+    }
+    
+    .kpi-value {
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 2px 0;
+    }
+    
+    .performance {
+        background-color: #f0f7ff;
+        border-left: 3px solid #0066ff;
+    }
+    
+    .risk {
+        background-color: #fff5f5;
+        border-left: 3px solid #ff4d4f;
+    }
+    
+    .ratio {
+        background-color: #f6ffed;
+        border-left: 3px solid #52c41a;
+    }
+    
+    .positive-value {
+        color: #52c41a;
+    }
+    
+    .negative-value {
+        color: #ff4d4f;
+    }
+    
+    .trend-indicator {
+        font-size: 12px;
+        margin-right: 2px;
+    }
+    
+    .kpi-change {
+        font-size: 12px;
+        color: #666;
+    }
+    
+    .metric-section {
+        background-color: #ffffff;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: rgba(0, 0, 0, 0.04) 0px 3px 5px;
+        margin-bottom: 20px;
+    }
+    
+    .section-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 20px;
+        text-align: center;
+    }
+    
+    /* Period performance cards */
+    .period-performance-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        grid-gap: 16px;
+        margin-top: 10px;
+    }
+    
+    .period-card {
+        background: #ffffff;
+        border-radius: 8px;
+        padding: 14px;
+        box-shadow: rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.06) 0px 1px 2px 0px;
+        border: 1px solid #f0f0f0;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .period-card:hover {
+        transform: translateY(-2px);
+        box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+    }
+    
+    .period-title {
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: #333;
+        border-bottom: 1px solid #f0f0f0;
+        padding-bottom: 5px;
+    }
+    
+    .compare-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 13px;
+        margin-bottom: 4px;
+        line-height: 1.3;
+    }
+    
+    .entity-label {
+        color: #555;
+    }
+    
+    /* Compact the info box */
+    .info-box {
+        background-color: #f8fafc;
+        padding: 10px 15px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+        font-size: 0.85em;
+        color: #334155;
+        line-height: 1.4;
+        box-shadow: rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
+        border: 1px solid #e2e8f0;
+    }
+    
+    /* Add compact date info */
+    .date-info {
+        background-color: #f8fafc;
+        padding: 10px 15px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+        font-size: 0.85em;
+        line-height: 1.4;
+        box-shadow: rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
+        border: 1px solid #e2e8f0;
+    }
+    
+    /* Make tab content more condensed */
+    .stTabs [data-baseweb="tab-panel"] {
+        padding-top: 16px;
+    }
+    
+    /* KPI table styling */
+    .kpi-table-container {
+        padding: 16px;
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
+        margin-bottom: 20px;
+    }
+    
+    .kpi-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+    }
+    
+    .kpi-table th {
+        background-color: #f8f9fa;
+        color: #555;
+        font-weight: 600;
+        text-align: left;
+        padding: 12px 15px;
+        border-bottom: 2px solid #e9ecef;
+    }
+    
+    .kpi-table tr {
+        border-bottom: 1px solid #e9ecef;
+    }
+    
+    .kpi-table tr:last-child {
+        border-bottom: none;
+    }
+    
+    .kpi-table td {
+        padding: 10px 15px;
+        vertical-align: middle;
+    }
+    
+    .kpi-category {
+        font-weight: 600;
+        font-size: 14px;
+        color: #333;
+    }
+    
+    .kpi-label {
+        padding-left: 10px;
+    }
+    
+    .kpi-value {
+        text-align: right;
+        font-weight: 700;
+        font-size: 16px;
+    }
+    
+    .positive-value {
+        color: #52c41a;
+    }
+    
+    .negative-value {
+        color: #ff4d4f;
+    }
+    
+    .trend-indicator {
+        font-size: 12px;
+        margin-right: 3px;
+    }
+    
+    .simple-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: Arial, sans-serif;
+        margin-bottom: 20px;
+    }
+    
+    .simple-table th {
+        background-color: #f5f5f5;
+        font-weight: bold;
+        text-align: left;
+        padding: 8px;
+        border: 1px solid #ddd;
+    }
+    
+    .simple-table td {
+        padding: 8px;
+        border: 1px solid #ddd;
+    }
+    
+    .positive {
+        color: green;
+    }
+    
+    .negative {
+        color: red;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# Pre-selected quants
+selected_quant_files = ["STEADY US 100performance.csv", "STEADY US Tech 100performance.csv"]
+selected_quant_names = ["STEADY US 100", "STEADY US Tech 100"]
+risk_free_rate = 2.0 / 100  # Default 2.0%
 
 # Language dictionaries
 TRANSLATIONS = {
@@ -360,102 +793,7 @@ TRANSLATIONS = {
     }
 }
 
-# Function to create download link for plotly figures
-def get_image_download_link(fig, filename, text, width=1200, height=800, scale=2):
-    """
-    Generates a download link for a plotly figure as a high-res PNG with transparent background.
-    Checks for kaleido package and provides installation instructions if missing.
-    
-    Parameters:
-    -----------
-    fig : plotly.graph_objs.Figure
-        The plotly figure to export
-    filename : str
-        Name of the file to download
-    text : str
-        Label for the download button
-    width : int, optional
-        Width of the exported image in pixels (default: 1200)
-    height : int, optional
-        Height of the exported image in pixels (default: 800)
-    scale : int, optional
-        Scale factor for resolution (default: 2)
-    """
-    try:
-        # Set transparent background using rgba(0,0,0,0) and higher resolution
-        fig.update_layout(
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)'
-        )
-        
-        # Generate high-res PNG image
-        img_bytes = fig.to_image(format="png", width=width, height=height, scale=scale)
-        
-        # Create download button
-        return st.download_button(
-            label=text,
-            data=img_bytes,
-            file_name=filename,
-            mime="image/png",
-        )
-    except Exception as e:
-        if "kaleido" in str(e).lower():
-            st.warning("""
-            💡 Um Grafiken als PNG herunterzuladen, muss das Paket 'kaleido' installiert werden.
-            
-            Installation über die Kommandozeile:
-            ```
-            pip install -U kaleido
-            ```
-            
-            Nach der Installation starten Sie die App neu.
-            """)
-        else:
-            st.error(f"Fehler beim Exportieren der Grafik: {str(e)}")
-        return None
-
-# Function to calculate recovery times from drawdowns
-def calculate_recovery_times(data):
-    """Calculate average and maximum recovery time from drawdowns"""
-    # Identify peaks (where the strategy value equals its cumulative max)
-    data['is_peak'] = (data['StrategyValue'] == data['Cummax'])
-    
-    # Identify recovery points
-    recovery_times = []
-    in_drawdown = False
-    drawdown_start = None
-    peak_value = None
-    
-    for i in range(len(data)):
-        if data['is_peak'].iloc[i] and not in_drawdown:
-            # At a new peak, not in drawdown
-            peak_value = data['StrategyValue'].iloc[i]
-        
-        elif not data['is_peak'].iloc[i] and not in_drawdown:
-            # Starting a drawdown
-            in_drawdown = True
-            drawdown_start = data.index[i]
-        
-        elif in_drawdown and data['StrategyValue'].iloc[i] >= peak_value:
-            # Recovered from drawdown
-            in_drawdown = False
-            recovery_end = data.index[i]
-            recovery_time = (recovery_end - drawdown_start).days
-            
-            # Only count significant drawdowns (e.g., > 5%)
-            max_drawdown_in_period = data.loc[drawdown_start:recovery_end, 'drawdown'].min()
-            if abs(max_drawdown_in_period) > 5:  # Only significant drawdowns > 5%
-                recovery_times.append(recovery_time)
-    
-    if not recovery_times:
-        return 0, 0  # No recovery times found
-    
-    avg_recovery = sum(recovery_times) / len(recovery_times)
-    max_recovery = max(recovery_times)
-    
-    return avg_recovery, max_recovery
-
-# Session state initialization for language
+# Session state for language
 if 'language' not in st.session_state:
     st.session_state.language = 'de'  # Default to German
 
@@ -484,37 +822,52 @@ with col2:
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Pre-selected quants - file names may have duplicated "performance.csv"
-selected_quant_files = ["US 100performance.csvperformance.csv", "US Tech 100performance.csvperformance.csv"]
-selected_quant_names = ["US 100", "US Tech 100"]
-risk_free_rate = 2.0 / 100  # Default 2.0%
-
 # Set up weights (evenly distributed)
 weights = {}
 for quant_name in selected_quant_names:
     weights[quant_name] = 0.5  # 50% each
 
+# Function to load data from any available path
+def load_data(filename, display_name):
+    possible_paths = [
+        os.path.join(base_dir, 'data', 'PerformancesClean', filename),
+        os.path.join(base_dir, 'data', 'Performances', filename)
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            try:
+                df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
+                return df
+            except Exception as e:
+                st.error(f"Error loading {path}: {str(e)}")
+    
+    # If no file found, create dummy data
+    st.warning(f"Creating dummy data for {display_name}")
+    date_range = pd.date_range(start='2020-01-01', end='2023-12-31', freq='D')
+    df = pd.DataFrame(index=date_range)
+    df['Returns'] = np.random.normal(0.0003, 0.005, len(date_range))
+    df['Benchmark'] = 100 * (1 + np.random.normal(0.0002, 0.006, len(date_range))).cumprod()
+    return df
+
 # Process data for selected quants
 returns_df = pd.DataFrame()
 benchmark_returns_df = pd.DataFrame()
 
-# Use path that works both locally and in cloud
-base_dir = os.path.dirname(os.path.abspath(__file__))
-
-# Load the data - use os.path.join for cross-platform compatibility
-for quant, display_name in zip(selected_quant_files, selected_quant_names):
-    data_file = os.path.join(base_dir, 'data', 'PerformancesClean', quant)
-    try:
-        df = pd.read_csv(data_file, parse_dates=["Date"], index_col="Date")
-        returns_df[display_name] = df["Returns"]
-        benchmark_returns_df[display_name] = df["Benchmark"].pct_change()
-    except FileNotFoundError:
-        st.error(f"Data file not found: {data_file}")
-        st.stop()
+# Load data for each quant
+for quant_file, display_name in zip(selected_quant_files, selected_quant_names):
+    df = load_data(quant_file, display_name)
+    returns_df[display_name] = df["Returns"]
+    benchmark_returns_df[display_name] = df["Benchmark"].pct_change()
 
 # Fill NaN values
 returns_df.fillna(0, inplace=True)
 benchmark_returns_df.fillna(0, inplace=True)
+
+# Check if data was loaded
+if returns_df.empty:
+    st.error("No data was loaded. Please check file paths.")
+    st.stop()
 
 # Calculate weighted portfolio returns
 quant_data = pd.DataFrame(index=returns_df.index)
@@ -530,14 +883,14 @@ for quant_name in selected_quant_names:
 quant_data["StrategyValue"] = 100 * (1 + quant_data["Returns"]).cumprod()
 quant_data["Benchmark"] = 100 * (1 + quant_data["Benchmark_Returns"]).cumprod()
 quant_data["drawdown"] = -((quant_data["StrategyValue"].cummax() - quant_data["StrategyValue"])/quant_data["StrategyValue"].cummax())*100
-quant_data["monthly_returns"] = (1 + quant_data["Returns"]).resample("M").prod() - 1
+quant_data["monthly_returns"] = (1 + quant_data["Returns"]).resample("ME").prod() - 1
 
 # Dashboard header with strategy name
 strategy_display_name = " + ".join(selected_quant_names)
 st.markdown(f"""
 <div class="dashboard-header">
     <div>
-        <h1>{t('dashboard_title')}: {strategy_display_name}</h1>
+        <h1>{t('dashboard_title')}</h1>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -549,27 +902,9 @@ st.markdown(f"""<div class="date-selector-container"><h4>📅 {t('time_period')}
 min_date = quant_data.index.min().date()
 max_date = quant_data.index.max().date()
 
-# All available dates as list for selector
-available_dates = quant_data.index.unique()
-date_options = [min_date] + sorted(list(set(d.date() for d in available_dates if pd.notna(d))))
-
-# Columns for date selection
-date_cols = st.columns([2, 3])
-
-# Time period buttons in first column
-with date_cols[0]:
-    period_options = ["YTD", t('one_year'), "3 " + t('three_years').split()[-1], "5 " + t('three_years').split()[-1], "MAX"]
-    selected_period = st.radio(t('select_period'), options=period_options, horizontal=True, index=4)  # Default to MAX
-
-# Date selection with slider
-with date_cols[1]:
-    # Selector for start date with actual date values
-    selected_start_date = st.select_slider(
-        t('select_start_date'),
-        options=date_options,
-        value=min_date,
-        format_func=lambda x: x.strftime('%d.%m.%Y')
-    )
+# Time period buttons
+period_options = ["YTD", t('one_year'), "3 " + t('three_years').split()[-1], "5 " + t('three_years').split()[-1], "MAX"]
+selected_period = st.radio(t('select_period'), options=period_options, horizontal=True, index=4)  # Default to MAX
 
 # Apply period if one was selected
 if selected_period == "YTD":
@@ -605,7 +940,7 @@ if start_date != min_date:
     filtered_data["Cummax"] = filtered_data["StrategyValue"].cummax()
     filtered_data["drawdown"] = -((filtered_data["Cummax"] - filtered_data["StrategyValue"])/filtered_data["Cummax"])*100
     filtered_data["Monat"] = filtered_data.index.month
-    filtered_data["monthly_returns"] = (1 + filtered_data["Returns"]).resample("M").prod() - 1
+    filtered_data["monthly_returns"] = (1 + filtered_data["Returns"]).resample("ME").prod() - 1
     filtered_data.fillna(0, inplace=True)
 
 # Calculate metrics
@@ -634,9 +969,9 @@ if "Cummax" not in filtered_data.columns:
 avg_recovery, max_recovery = calculate_recovery_times(filtered_data)
 
 # beta and alpha with monthly returns
-monthly_returns = filtered_data["Returns"].resample("M").apply(lambda x: (1 + x).prod() - 1)
+monthly_returns = filtered_data["Returns"].resample("ME").apply(lambda x: (1 + x).prod() - 1)
 monthly_returns.fillna(0, inplace=True)
-benchmark_monthly_returns = filtered_data["Benchmark_Returns"].resample("M").apply(lambda x: (1 + x).prod() - 1)
+benchmark_monthly_returns = filtered_data["Benchmark_Returns"].resample("ME").apply(lambda x: (1 + x).prod() - 1)
 benchmark_monthly_returns.fillna(0, inplace=True)
 
 # Calculate beta
@@ -677,158 +1012,113 @@ three_year_bench_perf = (quant_data.loc[last_date, 'Benchmark'] / quant_data.loc
 five_year_bench_perf = (quant_data.loc[last_date, 'Benchmark'] / quant_data.loc[five_year_date, 'Benchmark'] - 1) * 100 if five_year_date != last_date else 0
 
 # Create main dashboard tabs
-overview_tab, returns_tab, rolling_tab, details_tab = st.tabs([
-    "📊 " + t('overview'),
+kpi_tab, performance_tab, returns_tab, rolling_tab, details_tab = st.tabs([
+    "📊 " + t('key_metrics'),
+    "📈 " + t('performance_drawdown'),
     "💹 " + t('return_analysis'),
     "📈 " + t('rolling_returns'),
     "📋 " + t('detailed_analysis')
 ])
 
-# OVERVIEW TAB - Main dashboard metrics and performance chart
-with overview_tab:
-    # Key Performance Indicators
-    st.markdown("""<div class="metric-container">
-        <h3 class="metric-section-header">📊 Key Performance Indicators</h3>
+# KPI TAB - Key metrics
+with kpi_tab:
+    # Add simplified table styling
+    st.markdown("""
+    <style>
+    .simple-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: Arial, sans-serif;
+        margin-bottom: 20px;
+    }
+    
+    .simple-table th {
+        background-color: #f5f5f5;
+        font-weight: bold;
+        text-align: left;
+        padding: 8px;
+        border: 1px solid #ddd;
+    }
+    
+    .simple-table td {
+        padding: 8px;
+        border: 1px solid #ddd;
+    }
+    
+    .positive {
+        color: green;
+    }
+    
+    .negative {
+        color: red;
+    }
+    </style>
     """, unsafe_allow_html=True)
     
-    # Layout: key metrics in flexible grid
-    col1, col2, col3, col4 = st.columns(4)
+    # Display calculation period
+    st.markdown(f"**Calculation Period:** {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}")
     
-    # Format metrics with appropriate colors
-    def format_metric(value, is_percentage=True, reverse_colors=False):
-        formatted = f"{value:.2f}{'%' if is_percentage else ''}"
-        if value > 0:
-            css_class = "positive" if not reverse_colors else "negative"
-        elif value < 0:
-            css_class = "negative" if not reverse_colors else "positive"
-        else:
-            css_class = ""
-        return f'<span class="metric-value {css_class}">{formatted}</span>'
-    
-    # First row of metrics - main performance indicators
+    # Create a simple table for KPIs
+    # Performance metrics
+    col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown(f"""
-        <div class="metric-row">
-            <div class="metric-label">{t('cagr')}</div>
-            {format_metric(cagr*100)}
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(f"""
-        <div class="metric-row">
-            <div class="metric-label">{t('total_return')}</div>
-            {format_metric(total_return*100)}
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(f"""
-        <div class="metric-row">
-            <div class="metric-label">{t('alpha')}</div>
-            {format_metric(alpha_annualized_pct)}
-        </div>
-        """, unsafe_allow_html=True)
+        st.header("Performance Metrics")
+        performance_data = {
+            "Metric": ["CAGR", "YTD", "1Y Return", "3Y Return"],
+            "Value": [
+                f"{cagr*100:.2f}%" if cagr >= 0 else f"<span class='negative'>{cagr*100:.2f}%</span>",
+                f"{ytd_perf:.2f}%" if ytd_perf >= 0 else f"<span class='negative'>{ytd_perf:.2f}%</span>",
+                f"{one_year_perf:.2f}%" if one_year_perf >= 0 else f"<span class='negative'>{one_year_perf:.2f}%</span>",
+                f"{three_year_perf:.2f}%" if three_year_perf >= 0 else f"<span class='negative'>{three_year_perf:.2f}%</span>"
+            ]
+        }
         
-    with col4:
-        st.markdown(f"""
-        <div class="metric-row">
-            <div class="metric-label">{t('beta')}</div>
-            {format_metric(beta, is_percentage=False)}
-        </div>
-        """, unsafe_allow_html=True)
+        # Convert to DataFrame
+        performance_df = pd.DataFrame(performance_data)
+        st.write(performance_df.to_html(escape=False, index=False, classes='simple-table'), unsafe_allow_html=True)
     
-    # Second row of metrics - risk metrics
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown(f"""
-        <div class="metric-row">
-            <div class="metric-label">{t('volatility')}</div>
-            {format_metric(annual_volatility*100, reverse_colors=True)}
-        </div>
-        """, unsafe_allow_html=True)
-    
+    # Risk metrics
     with col2:
-        st.markdown(f"""
-        <div class="metric-row">
-            <div class="metric-label">{t('max_drawdown')}</div>
-            {format_metric(max_drawdown, reverse_colors=True)}
-        </div>
-        """, unsafe_allow_html=True)
+        st.header("Risk Metrics")
+        risk_data = {
+            "Metric": ["Volatility", "Max Drawdown", "Tracking Error"],
+            "Value": [
+                f"{annual_volatility*100:.2f}%",
+                f"{max_drawdown:.2f}%",
+                f"{tracking_error*100:.2f}%"
+            ]
+        }
     
+        # Convert to DataFrame
+        risk_df = pd.DataFrame(risk_data)
+        st.write(risk_df.to_html(escape=False, index=False, classes='simple-table'), unsafe_allow_html=True)
+    
+    # Ratio metrics
     with col3:
-        st.markdown(f"""
-        <div class="metric-row">
-            <div class="metric-label">{t('sortino_ratio')}</div>
-            {format_metric(sortino, is_percentage=False)}
-        </div>
-        """, unsafe_allow_html=True)
+        st.header("Ratio Metrics")
+        ratio_data = {
+            "Metric": ["Sharpe Ratio", "Sortino Ratio", "Beta", "Alpha"],
+            "Value": [
+                f"{sharpe:.2f}" if sharpe >= 0 else f"<span class='negative'>{sharpe:.2f}</span>",
+                f"{sortino:.2f}" if sortino >= 0 else f"<span class='negative'>{sortino:.2f}</span>",
+                f"{beta:.2f}" if beta >= 0 else f"<span class='negative'>{beta:.2f}</span>",
+                f"{alpha_annualized_pct:.2f}" if alpha_annualized_pct >= 0 else f"<span class='negative'>{alpha_annualized_pct:.2f}</span>"
+            ]
+        }
         
-    with col4:
-        st.markdown(f"""
-        <div class="metric-row">
-            <div class="metric-label">{t('tracking_error')}</div>
-            {format_metric(tracking_error*100, reverse_colors=True)}
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Section for period performance comparison
-    st.markdown(f"""<h4>{t('strategy_vs_benchmark')}</h4>""", unsafe_allow_html=True)
-    
-    # Create period performance table with 4 columns
-    period_cols = st.columns(4)
-    
-    # YTD Performance
-    with period_cols[0]:
-        st.markdown(f"""
-        <div class="metric-row">
-            <div class="metric-label">{t('ytd')}</div>
-            <div>
-                {t('strategy')}: {format_metric(ytd_perf)}<br>
-                {t('benchmark_label')}: {format_metric(ytd_bench_perf)}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # 1Y Performance
-    with period_cols[1]:
-        st.markdown(f"""
-        <div class="metric-row">
-            <div class="metric-label">{t('one_year_perf')}</div>
-            <div>
-                {t('strategy')}: {format_metric(one_year_perf)}<br>
-                {t('benchmark_label')}: {format_metric(one_year_bench_perf)}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # 3Y Performance
-    with period_cols[2]:
-        st.markdown(f"""
-        <div class="metric-row">
-            <div class="metric-label">{t('three_year_perf')}</div>
-            <div>
-                {t('strategy')}: {format_metric(three_year_perf)}<br>
-                {t('benchmark_label')}: {format_metric(three_year_bench_perf)}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # 5Y Performance
-    with period_cols[3]:
-        st.markdown(f"""
-        <div class="metric-row">
-            <div class="metric-label">{t('five_year_perf')}</div>
-            <div>
-                {t('strategy')}: {format_metric(five_year_perf)}<br>
-                {t('benchmark_label')}: {format_metric(five_year_bench_perf)}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Close the metrics container
-    st.markdown("</div>", unsafe_allow_html=True)
+        # Convert to DataFrame
+        ratio_df = pd.DataFrame(ratio_data)
+        st.write(ratio_df.to_html(escape=False, index=False, classes='simple-table'), unsafe_allow_html=True)
+
+# PERFORMANCE TAB - Performance and Drawdown chart
+with performance_tab:
+    # Replace the date info with more compact version
+    date_info_html = f"""
+    <div class="date-info">
+        <strong>Calculation Period:</strong> {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}
+    </div>
+    """
+    st.markdown(date_info_html, unsafe_allow_html=True)
     
     # Performance and Drawdown visualization
     st.markdown("""<div class="chart-container">
@@ -838,9 +1128,9 @@ with overview_tab:
     # Create subplot with two charts
     fig = make_subplots(rows=2, cols=1, 
                     shared_xaxes=True,
-                    vertical_spacing=0.05,
+                    vertical_spacing=0.03,  # Decreased for better spacing in taller chart
                     subplot_titles=(t('strategy_value'), None),
-                    row_heights=[0.67, 0.33])  # 2/3 for strategy value, 1/3 for drawdown
+                    row_heights=[0.7, 0.3])  # Adjusted for better proportion with taller chart
 
     # Strategy value plot with area filling
     fig.add_trace(
@@ -886,7 +1176,7 @@ with overview_tab:
 
     # Adjust layout
     fig.update_layout(
-        height=600,  # Reset to original height
+        height=900,  # Increased height by factor of 1.5 (from 600 to 900)
         showlegend=True,
         autosize=True,
         margin=dict(l=50, r=50, t=80, b=50),  # Adjusted margins
@@ -928,750 +1218,621 @@ with overview_tab:
     # Close chart container
     st.markdown("</div>", unsafe_allow_html=True)
 
+# RETURNS TAB - Monthly returns analysis
 with returns_tab:
-    # RETURNS ANALYSIS TAB - Monthly returns and return triangle
-    st.markdown("""<div class="metric-container">
+    # Replace the date info with more compact version
+    date_info_html = f"""
+    <div class="date-info">
+        <strong>Calculation Period:</strong> {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}
+    </div>
+    """
+    st.markdown(date_info_html, unsafe_allow_html=True)
+    
+    st.markdown("""<div class="chart-container">
         <h3 class="metric-section-header">📅 """ + t('monthly_returns').format(start_date.strftime("%d.%m.%Y")) + """</h3>
     """, unsafe_allow_html=True)
     
-    # Set start date for heatmap to max(start_date, 2020-01-01)
-    heatmap_start_date = max(pd.Timestamp(start_date), pd.Timestamp('2020-01-01'))
-    heatmap_data = filtered_data.loc[heatmap_start_date:end_date].copy()
-    
-    # Calculate monthly returns (in percent)
-    # Using point-to-point return calculation for consistency
-    monthly_returns_df = pd.DataFrame()
-    
-    # Get data resampled to month-end
-    monthly_prices = heatmap_data.resample('M')['StrategyValue'].last()
-    
-    # Calculate month-to-month returns properly
-    for year in sorted(heatmap_data.index.year.unique()):
-        year_data = monthly_prices[monthly_prices.index.year == year]
-        if not year_data.empty:
-            # For each month, calculate return based on previous month's value
-            for i, (date, value) in enumerate(year_data.items()):
-                if i == 0 and year > heatmap_data.index.year.min():
-                    # For first month of non-first year, get last month of previous year
-                    prev_year_last_month = monthly_prices[monthly_prices.index.year == year-1].iloc[-1] if not monthly_prices[monthly_prices.index.year == year-1].empty else None
-                    if prev_year_last_month is not None:
-                        monthly_returns_df.loc[date, 'Returns'] = ((value / prev_year_last_month) - 1) * 100
-                    else:
-                        # If no previous data, use first value in this year's data
-                        first_day_value = heatmap_data[heatmap_data.index.year == year].iloc[0]['StrategyValue']
-                        monthly_returns_df.loc[date, 'Returns'] = ((value / first_day_value) - 1) * 100
-                elif i > 0:
-                    # For subsequent months, calculate based on previous month
-                    prev_month_value = year_data.iloc[i-1]
-                    monthly_returns_df.loc[date, 'Returns'] = ((value / prev_month_value) - 1) * 100
+    try:
+        # Use a Plotly approach instead of seaborn
+        import plotly.graph_objects as go
+        
+        # Set start date to January 1, 2020 (regardless of the selected start date in the dashboard)
+        start_date_for_heatmap = pd.Timestamp('2020-01-01')
+        returns_data = filtered_data.loc[start_date_for_heatmap:, 'Returns'].copy()
+        
+        # Add note about specific date range for heatmap
+        st.markdown(f"""
+        <div style="background-color: #e8f4f8; padding: 8px 15px; border-radius: 5px; margin-bottom: 15px; font-size: 0.85em; color: #0c5460;">
+            <strong>Note:</strong> Monthly returns displayed from {start_date_for_heatmap.strftime('%d.%m.%Y')} to {end_date.strftime('%d.%m.%Y')} regardless of the selected period.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Create a DataFrame with Year and Month
+        returns_df = pd.DataFrame({
+            'Return': returns_data,
+            'Year': returns_data.index.year,
+            'Month': returns_data.index.month,
+            'Date': returns_data.index
+        })
+        
+        # Calculate monthly returns by grouping
+        monthly_returns = returns_df.groupby(['Year', 'Month'])['Return'].apply(
+            lambda x: ((1 + x).prod() - 1) * 100  # Convert to percentage
+        ).reset_index()
+        
+        # Create pivot table for heatmap
+        pivot_data = monthly_returns.pivot(index='Year', columns='Month', values='Return')
+        
+        # Get current year and month for highlighting
+        current_year = datetime.datetime.now().year
+        current_month = datetime.datetime.now().month
+        
+        # Replace month numbers with names
+        month_names = {
+            1: 'Jan', 2: 'Feb', 3: 'Mär' if st.session_state.language == 'de' else 'Mar', 
+            4: 'Apr', 5: 'Mai' if st.session_state.language == 'de' else 'May', 
+            6: 'Jun', 7: 'Jul', 8: 'Aug', 9: 'Sep', 
+            10: 'Okt' if st.session_state.language == 'de' else 'Oct', 
+            11: 'Nov', 12: 'Dez' if st.session_state.language == 'de' else 'Dec'
+        }
+        
+        # Create lists for the heatmap
+        years = pivot_data.index.tolist()
+        months = [month_names[m] for m in pivot_data.columns.tolist()]
+        z_values = pivot_data.values
+        
+        # Create text annotations for the heatmap cells
+        text_values = []
+        for row in z_values:
+            row_texts = []
+            for value in row:
+                if pd.notna(value):
+                    sign = "+" if value > 0 else ""
+                    row_texts.append(f"{sign}{value:.1f}%")
                 else:
-                    # For very first month in dataset, use the first day's value
-                    first_day_value = heatmap_data[heatmap_data.index.year == year].iloc[0]['StrategyValue']
-                    monthly_returns_df.loc[date, 'Returns'] = ((value / first_day_value) - 1) * 100
-    
-    # Calculate YTD and yearly returns
-    yearly_returns = {}
-    for year in sorted(heatmap_data.index.year.unique()):
-        # Get first and last value for the year
-        year_data = heatmap_data[heatmap_data.index.year == year]
-        if not year_data.empty:
-            first_value = year_data.iloc[0]['StrategyValue']
-            last_value = year_data.iloc[-1]['StrategyValue']
-            yearly_returns[year] = ((last_value / first_value) - 1) * 100
-    
-    # Create the pivot table from the calculated monthly returns
-    monthly_returns_df['year'] = monthly_returns_df.index.year
-    monthly_returns_df['month'] = monthly_returns_df.index.month
-    pivot_table = monthly_returns_df.pivot(index='year', columns='month', values='Returns')
-    
-    # Add yearly returns column
-    for year in pivot_table.index:
-        if year in yearly_returns:
-            pivot_table.loc[year, 'yearly'] = yearly_returns[year]
-    
-    # Add empty column for visual separation
-    pivot_table.insert(len(pivot_table.columns) - 1, ' ', np.nan)
-
-    # Update column names (including month names)
-    month_names = {
-        1: 'Jan', 2: 'Feb', 3: 'Mär' if st.session_state.language == 'de' else 'Mar', 
-        4: 'Apr', 5: 'Mai' if st.session_state.language == 'de' else 'May', 
-        6: 'Jun', 7: 'Jul', 8: 'Aug', 9: 'Sep', 
-        10: 'Okt' if st.session_state.language == 'de' else 'Oct', 
-        11: 'Nov', 12: 'Dez' if st.session_state.language == 'de' else 'Dec',
-        'yearly': 'Yearly' if st.session_state.language == 'en' else 'Jährlich'
-    }
-    
-    # Rename considering the new separator column
-    pivot_table.columns = [
-        month_names.get(col, col) if isinstance(col, (int, str)) else col
-        for col in pivot_table.columns
-    ]
-    
-    # Replace NaN values
-    pivot_table.fillna(np.nan, inplace=True)
-    
-    # Create text values for better readability
-    text_values = []
-    for i in range(len(pivot_table.index)):
-        row_texts = []
-        for j in range(len(pivot_table.columns)):
-            value = pivot_table.iloc[i, j]
-            if pd.notna(value):
-                # Add a plus sign for positive values for easier reading
-                sign = "+" if value > 0 else ""
-                row_texts.append(f"{sign}{value:.1f}%")  # Round to 1 decimal place
-            else:
-                row_texts.append("")
-        text_values.append(row_texts)
+                    row_texts.append("")
+            text_values.append(row_texts)
         
-    # Create a custom colorscale with darker colors for better text contrast
-    # Red-Yellow-Green with stronger colors
-    custom_colorscale = [
-        [0, 'rgb(165,0,38)'],      # Dark red
-        [0.3, 'rgb(215,48,39)'],   # Red
-        [0.45, 'rgb(244,109,67)'], # Light red-orange
-        [0.5, 'rgb(253,174,97)'],  # Light orange
-        [0.55, 'rgb(254,224,144)'],# Very light yellow
-        [0.65, 'rgb(217,239,139)'],# Light green-yellow
-        [0.8, 'rgb(145,207,96)'],  # Light green
-        [1, 'rgb(26,152,80)']      # Dark green
-    ]
+        # Determine the color scale range
+        abs_max = max(abs(np.nanmin(z_values)), abs(np.nanmax(z_values)))
         
-    # Create heatmap with Plotly
-    fig_heatmap = go.Figure(data=go.Heatmap(
-        z=pivot_table.values,
-        x=pivot_table.columns,
-        y=pivot_table.index,
-        colorscale=custom_colorscale,  # Custom colorscale for better contrast
-        zmin=-10,                      # Lower limit for color scale
-        zmid=-1,                       # Shift of color transition - Yellow at 1% instead of at 0%
-        zmax=8,                        # Upper limit for color scale
-        text=text_values,              # Show rounded values
-        hoverinfo='text',
-        texttemplate='%{text}',
-        textfont={"size": 13, "color": "black", "family": "Arial Black"},  # Bold, black text
-        colorbar=dict(title=t('return'))
-    ))
-    
-    # Adjust layout
-    fig_heatmap.update_layout(
-        title=t('monthly_returns').format(start_date.strftime("%d.%m.%Y")),
-        xaxis_title=t('month'),
-        yaxis_title=t('year'),
-        height=500,  # Increased height
-        autosize=True,
-        margin=dict(l=50, r=50, t=100, b=50),  # Adjusted margins
-        yaxis=dict(autorange="reversed"),  # Newest year at top
-        xaxis=dict(side="top"),  # x-axis displayed at top
-        template="plotly_white"  # Use a clean white template
-    )
-    
-    # Display heatmap
-    st.plotly_chart(fig_heatmap, use_container_width=True)
-    
-    # Add download button for heatmap with wider width (1.3x)
-    heatmap_filename = f"monthly_returns_{strategy_display_name_for_file}_{period_text}.png"
-    get_image_download_link(
-        fig_heatmap, 
-        heatmap_filename, 
-        "📥 " + t('download_heatmap'), 
-        width=int(1200 * 1.3),  # 1.3 times wider
-        height=800
-    )
+        # Create the heatmap using Plotly
+        fig = go.Figure(data=go.Heatmap(
+            z=z_values,
+            x=months,
+            y=years,
+            colorscale=[
+                [0, 'rgb(165,0,38)'],      # Dark red for very negative
+                [0.3, 'rgb(215,48,39)'],   # Red for negative
+                [0.45, 'rgb(244,109,67)'], # Light red-orange
+                [0.5, 'rgb(255,255,255)'], # White for zero
+                [0.55, 'rgb(186,228,174)'],# Light green for slightly positive
+                [0.65, 'rgb(152,210,144)'],# Light green
+                [0.8, 'rgb(88,171,97)'],   # Green for positive
+                [1, 'rgb(35,120,35)']      # Dark green for very positive
+            ],
+            colorbar=dict(
+                title=dict(text=t('return') + " (%)", side="right"),
+                thickness=12,
+                len=0.8,
+                x=1.02
+            ),
+            text=text_values,
+            texttemplate="%{text}",
+            textfont=dict(
+                family="Arial", 
+                size=12,
+                color="black"  # Use a single color for all text
+            ),
+            hoverongaps=False,
+            hovertemplate='%{y}, %{x}: %{text}<extra></extra>',
+            zmid=0,  # Center the color scale at zero
+            zmin=-abs_max,
+            zmax=abs_max
+        ))
+        
+        # Now add colored text annotations separately
+        for i, year in enumerate(years):
+            for j, month in enumerate(months):
+                if j < len(months) and i < len(years) and j < z_values.shape[1] and pd.notna(z_values[i, j]):
+                    value = z_values[i, j]
+                    color = "darkgreen" if value > 0 else "darkred" if value < 0 else "black"
+                    
+                    # Create an annotation object
+                    fig.add_annotation(
+                        x=month,
+                        y=year,
+                        text=text_values[i][j],
+                        showarrow=False,
+                        font=dict(
+                            family="Arial",
+                            size=12,
+                            color=color
+                        ),
+                        xref="x",
+                        yref="y"
+                    )
+        
+        # Improve the layout
+        fig.update_layout(
+            title=f"Monthly Returns ({start_date_for_heatmap.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')})",
+            title_font=dict(size=16),
+            width=700,
+            height=400,
+            margin=dict(l=40, r=40, t=60, b=20),
+            paper_bgcolor='white',
+            plot_bgcolor='white',
+            xaxis=dict(
+                title=None,
+                side='top',
+                tickangle=0,
+                tickfont=dict(size=12)
+            ),
+            yaxis=dict(
+                title=None,
+                autorange="reversed",  # To keep newest years at top
+                tickfont=dict(size=12)
+            )
+        )
+        
+        # Display the Plotly figure in Streamlit
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Create a download option using the get_image_download_link function
+        heatmap_filename = f"monthly_returns_{strategy_display_name_for_file}_{period_text}.png"
+        get_image_download_link(fig, heatmap_filename, "📥 " + t('download_heatmap'))
+        
+        # Add explanatory text
+        st.markdown("""
+        <div style="font-size: 0.9em; color: #666;">
+        <p><b>Reading the heatmap:</b></p>
+        <ul>
+            <li>The table shows monthly returns as a percentage.</li>
+            <li>Green indicates positive returns, red indicates negative returns.</li>
+        </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    except Exception as e:
+        st.error(f"Error creating monthly returns heatmap: {str(e)}")
+        st.write("Try selecting a different date range.")
     
     st.markdown("</div>", unsafe_allow_html=True)
-    
-    # Return triangle creation
-    st.markdown("""<div class="metric-container">
-        <h3 class="metric-section-header">📐 """ + t('return_triangle') + """</h3>
-    """, unsafe_allow_html=True)
-    
-    # Calculate annual values (for all data, not just filtered)
-    yearly_data = filtered_data.copy()
-    
-    # Create a DataFrame to store the first and last values of each year
-    year_points = pd.DataFrame(columns=['year', 'first_date', 'first_value', 'last_date', 'last_value'])
-    
-    # Extract first and last value for each year
-    for year in sorted(yearly_data.index.year.unique()):
-        year_slice = yearly_data[yearly_data.index.year == year]
-        if not year_slice.empty:
-            year_points = year_points._append({
-                'year': year,
-                'first_date': year_slice.index.min(),
-                'first_value': year_slice.loc[year_slice.index.min(), 'StrategyValue'],
-                'last_date': year_slice.index.max(),
-                'last_value': year_slice.loc[year_slice.index.max(), 'StrategyValue']
-            }, ignore_index=True)
-    
-    # List of years
-    years = sorted(year_points['year'].unique())
-    
-    # Create empty DataFrame for return triangle
-    rendite_dreieck = pd.DataFrame(index=years, columns=years)
-    
-    # For each possible entry point (year)
-    for i, start_year in enumerate(years):
-        start_row = year_points[year_points['year'] == start_year].iloc[0]
-        
-        # For each possible exit point (year)
-        for j, end_year in enumerate(years):
-            if end_year >= start_year:
-                end_row = year_points[year_points['year'] == end_year].iloc[0]
-                
-                # Calculate point-to-point return
-                start_value = start_row['first_value']
-                end_value = end_row['last_value']
-                
-                # Calculate total return for the period
-                total_return = (end_value / start_value) - 1
-                
-                # For multi-year periods, annualize the return
-                if end_year > start_year:
-                    # Calculate the exact time difference in years (including partial years)
-                    time_diff = (end_row['last_date'] - start_row['first_date']).days / 365.25
-                    # Annualize the return
-                    annualized_return = ((1 + total_return) ** (1 / time_diff)) - 1
-                    rendite_dreieck.loc[start_year, end_year] = annualized_return * 100
-                else:
-                    # For single-year returns, just use the total return
-                    rendite_dreieck.loc[start_year, end_year] = total_return * 100
-    
-    # Replace NaN values with empty strings for better display
-    rendite_dreieck_display = rendite_dreieck.copy()
-    rendite_dreieck_display = rendite_dreieck_display.fillna(np.nan)
-    
-    # Fill NaN values for heatmap
-    rendite_dreieck_filled = rendite_dreieck.fillna(np.nan)
-    
-    # Create formatted values for text with improved readability
-    text_values = []
-    for i in range(len(rendite_dreieck.index)):
-        row_texts = []
-        for j in range(len(rendite_dreieck.columns)):
-            value = rendite_dreieck.iloc[i, j]
-            if pd.notna(value):
-                # Add a plus sign for positive values for easier reading
-                sign = "+" if value > 0 else ""
-                row_texts.append(f"{sign}{value:.1f}%")  # Round to 1 decimal place
-            else:
-                row_texts.append("")
-        text_values.append(row_texts)
-    
-    # Create a custom colorscale with darker colors for better text contrast
-    # Red-Yellow-Green with stronger colors for triangle values
-    custom_colorscale = [
-        [0, 'rgb(165,0,38)'],      # Dark red
-        [0.3, 'rgb(215,48,39)'],   # Red
-        [0.45, 'rgb(244,109,67)'], # Light red-orange
-        [0.5, 'rgb(253,174,97)'],  # Light orange
-        [0.55, 'rgb(254,224,144)'],# Very light yellow
-        [0.65, 'rgb(217,239,139)'],# Light green-yellow
-        [0.8, 'rgb(145,207,96)'],  # Light green
-        [1, 'rgb(26,152,80)']      # Dark green
-    ]
-    
-    # Create heatmap for return triangle
-    fig_dreieck = go.Figure(data=go.Heatmap(
-        z=rendite_dreieck_filled.values,
-        x=rendite_dreieck.columns,
-        y=rendite_dreieck.index,
-        colorscale=custom_colorscale,  # Custom colorscale for better contrast
-        zmin=-15,
-        zmid=0,
-        zmax=15,
-        text=text_values,  # Use pre-formatted text values
-        hoverinfo='text',
-        texttemplate='%{text}',  # Use text directly without further formatting
-        textfont={"size": 13, "color": "black", "family": "Arial Black"},  # Bold, black text
-        colorbar=dict(title=t('annual_return')),
-        showscale=True
-    ))
-    
-    # Adjust layout
-    fig_dreieck.update_layout(
-        title=t('return_triangle_title'),
-        xaxis_title=t('exit_year'),
-        yaxis_title=t('entry_year'),
-        height=700,  # Increased height
-        autosize=True,
-        margin=dict(l=50, r=50, t=100, b=80),  # Adjusted margins
-        xaxis=dict(
-            dtick=1,  # Show every year
-            tickangle=45,  # Angled labels for better readability
-            tickfont=dict(size=12)  # Increased tick font size
-        ),
-        yaxis=dict(
-            dtick=1,  # Show every year
-            autorange="reversed",  # Oldest years at top
-            tickfont=dict(size=12)  # Increased tick font size
-        ),
-        template="plotly_white"  # Use a clean white template
-    )
-    
-    # Display return triangle
-    st.plotly_chart(fig_dreieck, use_container_width=True)
-    
-    # Add download button for return triangle
-    dreieck_filename = f"renditedreieck_{strategy_display_name_for_file}_{period_text}.png"
-    get_image_download_link(
-        fig_dreieck, 
-        dreieck_filename, 
-        "📥 " + t('download_triangle'),
-        width=int(1200 * 1.3),  # 1.3 times wider
-        height=800
-    )
-    
-    # Interpretation hint
-    st.caption(t('triangle_caption'))
-    st.markdown("</div>", unsafe_allow_html=True)
 
+# ROLLING RETURNS TAB - Rolling returns analysis
 with rolling_tab:
-    # Rolling returns calculation and visualization
-    st.markdown("""<div class="metric-container">
+    # Replace the date info with more compact version
+    date_info_html = f"""
+    <div class="date-info">
+        <strong>Calculation Period:</strong> {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}
+    </div>
+    """
+    st.markdown(date_info_html, unsafe_allow_html=True)
+    
+    st.markdown("""<div class="chart-container">
         <h3 class="metric-section-header">📈 """ + t('rolling_returns') + """</h3>
     """, unsafe_allow_html=True)
     
-    # Trading days for different periods
-    rolling_window_3m = 63     # 3 months (21 days/month)
-    rolling_window_1y = 252    # 1 year (252 trading days)
-    rolling_window_3y = 756    # 3 years (252 × 3 trading days)
+    # Create tabs for different rolling periods
+    rolling_tabs = st.tabs([
+        "📊 " + t('three_months'),
+        "📈 " + t('one_year'),
+        "📉 " + t('three_years'),
+        "🔄 " + t('comparison')
+    ])
     
-    # Calculate rolling returns (as percentage values)
-    rolling_data = filtered_data.copy()
+    # Calculate rolling returns for different periods
+    rolling_data_3m = pd.DataFrame()
+    rolling_data_1y = pd.DataFrame()
+    rolling_data_3y = pd.DataFrame()
     
-    # Make sure we have enough data for calculation
-    if len(rolling_data) > rolling_window_3m:
-        rolling_data['rolling_3m_return'] = ((rolling_data['StrategyValue'] / rolling_data['StrategyValue'].shift(rolling_window_3m)) - 1) * 100
-    else:
-        rolling_data['rolling_3m_return'] = np.nan
-        
-    if len(rolling_data) > rolling_window_1y:
-        rolling_data['rolling_1y_return'] = ((rolling_data['StrategyValue'] / rolling_data['StrategyValue'].shift(rolling_window_1y)) - 1) * 100
-    else:
-        rolling_data['rolling_1y_return'] = np.nan
-        
-    if len(rolling_data) > rolling_window_3y:
-        rolling_data['rolling_3y_return'] = ((rolling_data['StrategyValue'] / rolling_data['StrategyValue'].shift(rolling_window_3y)) - 1) * 100
-    else:
-        rolling_data['rolling_3y_return'] = np.nan
+    # 3-Month rolling returns (approx. 63 trading days)
+    window_size_3m = 63
+    if len(filtered_data) >= window_size_3m:
+        rolling_data_3m['rolling_3m_return'] = (filtered_data['StrategyValue'].pct_change(window_size_3m) * 100).dropna()
     
-    # Filter for non-NaN values to avoid issues
-    rolling_data_3m = rolling_data.dropna(subset=['rolling_3m_return'])
-    rolling_data_1y = rolling_data.dropna(subset=['rolling_1y_return'])
-    rolling_data_3y = rolling_data.dropna(subset=['rolling_3y_return'])
+    # 1-Year rolling returns (approx. 252 trading days)
+    window_size_1y = 252
+    if len(filtered_data) >= window_size_1y:
+        rolling_data_1y['rolling_1y_return'] = (filtered_data['StrategyValue'].pct_change(window_size_1y) * 100).dropna()
     
-    # Aggregate data on monthly basis
-    rolling_monthly = pd.DataFrame()
-    
-    # Process each timeframe separately to avoid losing data
-    if not rolling_data_3m.empty:
-        rolling_monthly['rolling_3m_return'] = rolling_data_3m['rolling_3m_return'].resample('M').mean()
-    
-    if not rolling_data_1y.empty:
-        rolling_monthly['rolling_1y_return'] = rolling_data_1y['rolling_1y_return'].resample('M').mean()
-        
-    if not rolling_data_3y.empty:
-        rolling_monthly['rolling_3y_return'] = rolling_data_3y['rolling_3y_return'].resample('M').mean()
+    # 3-Year rolling returns (approx. 756 trading days)
+    window_size_3y = 756
+    if len(filtered_data) >= window_size_3y:
+        rolling_data_3y['rolling_3y_return'] = (filtered_data['StrategyValue'].pct_change(window_size_3y) * 100).dropna()
     
     # Function to create rolling returns plot
-    def create_rolling_returns_plot(data, column, stats, color, period_name):
+    def create_rolling_returns_plot(data, column, color, period_name, window_size):
+        if data.empty:
+            st.warning(t('not_enough_data').format(period_name, window_size))
+            return None
+        
+        # Calculate statistics
+        avg_return = data[column].mean()
+        std_dev = data[column].std()
+        min_return = data[column].min()
+        max_return = data[column].max()
+        
         # Create plot
         fig = go.Figure()
         
-        # Main line for rolling returns
+        # Main rolling returns line
         fig.add_trace(
             go.Scatter(
-                x=data.index,
+                x=data.index, 
                 y=data[column],
                 mode='lines',
-                name=f'{period_name}-{t("rolling_returns").split()[0]}',
-                line=dict(color=color, width=2.5)  # Increased line width
+                name=f"{period_name} {t('rolling_returns')}",
+                line=dict(color=color, width=2)
             )
         )
         
-        # Horizontal line for average
-        fig.add_trace(
-            go.Scatter(
-                x=[data.index.min(), data.index.max()],
-                y=[stats['mean'], stats['mean']],
-                mode='lines',
-                name=t('average').format(round(stats["mean"], 2)),  # Increased precision
-                line=dict(color='black', width=2, dash='dash')
-            )
+        # Average line
+        fig.add_shape(
+            type="line",
+            x0=data.index.min(),
+            y0=avg_return,
+            x1=data.index.max(),
+            y1=avg_return,
+            line=dict(color="green", width=1, dash="dash"),
+            name=t('average')
         )
         
-        # Upper standard deviation
-        fig.add_trace(
-            go.Scatter(
-                x=[data.index.min(), data.index.max()],
-                y=[stats['mean'] + stats['std'], stats['mean'] + stats['std']],
-                mode='lines',
-                name=t('std_dev_plus').format(round(stats["mean"] + stats["std"], 2)),  # Increased precision
-                line=dict(color='rgba(0, 128, 0, 0.5)', width=1.5, dash='dot')
-            )
+        # Standard deviation bands
+        fig.add_shape(
+            type="line",
+            x0=data.index.min(),
+            y0=avg_return + std_dev,
+            x1=data.index.max(),
+            y1=avg_return + std_dev,
+            line=dict(color="gray", width=1, dash="dot"),
+            name="+1 σ"
         )
         
-        # Lower standard deviation
-        fig.add_trace(
-            go.Scatter(
-                x=[data.index.min(), data.index.max()],
-                y=[stats['mean'] - stats['std'], stats['mean'] - stats['std']],
-                mode='lines',
-                name=t('std_dev_minus').format(round(stats["mean"] - stats["std"], 2)),  # Increased precision
-                line=dict(color='rgba(255, 0, 0, 0.5)', width=1.5, dash='dot')
-            )
+        fig.add_shape(
+            type="line",
+            x0=data.index.min(),
+            y0=avg_return - std_dev,
+            x1=data.index.max(),
+            y1=avg_return - std_dev,
+            line=dict(color="gray", width=1, dash="dot"),
+            name="-1 σ"
         )
         
-        # Maximum value with marker and label
-        max_date = data[column].idxmax()
-        max_value = data[column].max()
-        fig.add_trace(
-            go.Scatter(
-                x=[max_date],
-                y=[max_value],
-                mode='markers+text',
-                name=t('maximum').format(round(max_value, 2)),  # Increased precision
-                marker=dict(color='green', size=12, symbol='triangle-up'),  # Larger marker
-                text=f'{max_value:.2f}%',  # Increased precision
-                textposition='top center',
-                textfont=dict(color='green', size=12),  # Increased text size
-                hoverinfo='text',
-                hovertext=f'{t("maximum").split(":")[0]}: {max_date.strftime("%d.%m.%Y")}, {max_value:.2f}%'  # Increased precision
+        # Annotations for statistics
+        annotations = [
+            dict(
+                x=data.index.max(),
+                y=avg_return,
+                xref="x",
+                yref="y",
+                text=t('average').format(avg_return),
+                showarrow=False,
+                font=dict(color="green"),
+                xanchor="right",
+                yanchor="bottom",
+                xshift=-10
+            ),
+            dict(
+                x=data.index.max(),
+                y=avg_return + std_dev,
+                xref="x",
+                yref="y",
+                text=t('std_dev_plus').format(avg_return + std_dev),
+                showarrow=False,
+                font=dict(color="gray"),
+                xanchor="right",
+                yanchor="bottom",
+                xshift=-10
+            ),
+            dict(
+                x=data.index.max(),
+                y=avg_return - std_dev,
+                xref="x",
+                yref="y",
+                text=t('std_dev_minus').format(avg_return - std_dev),
+                showarrow=False,
+                font=dict(color="gray"),
+                xanchor="right",
+                yanchor="top",
+                xshift=-10
             )
-        )
-        
-        # Minimum value with marker and label
-        min_date = data[column].idxmin()
-        min_value = data[column].min()
-        fig.add_trace(
-            go.Scatter(
-                x=[min_date],
-                y=[min_value],
-                mode='markers+text',
-                name=t('minimum').format(round(min_value, 2)),  # Increased precision
-                marker=dict(color='red', size=12, symbol='triangle-down'),  # Larger marker
-                text=f'{min_value:.2f}%',  # Increased precision
-                textposition='bottom center',
-                textfont=dict(color='red', size=12),  # Increased text size
-                hoverinfo='text',
-                hovertext=f'{t("minimum").split(":")[0]}: {min_date.strftime("%d.%m.%Y")}, {min_value:.2f}%'  # Increased precision
-            )
-        )
-        
-        # Determine padding for y-axis range to avoid cutoff
-        y_padding = max(abs(max_value), abs(min_value)) * 0.15
+        ]
         
         # Adjust layout
         fig.update_layout(
-            title=t('rolling_returns_title').format(period_name, round(stats["mean"], 2), round(stats["std"], 2)),  # Increased precision
+            title=t('rolling_returns_title').format(period_name, avg_return, std_dev),
             xaxis_title=t('date'),
-            yaxis_title=f'{period_name}-{t("return")}',
-            height=600,  # Increased height
-            autosize=True,
-            margin=dict(l=50, r=50, t=100, b=50),  # Adjusted margins
-            hovermode='x unified',
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1,
-                font=dict(size=12)  # Increased legend text size
-            ),
-            yaxis=dict(
-                zeroline=True,
-                zerolinewidth=1,
-                zerolinecolor='black',
-                gridcolor='lightgray',
-                # Set y-axis range with padding to avoid cutoff
-                range=[min_value - y_padding, max_value + y_padding],
-                tickfont=dict(size=12)  # Increased axis tick font size
-            ),
-            xaxis=dict(
-                tickfont=dict(size=12)  # Increased axis tick font size
-            ),
-            template="plotly_white"  # Use a clean white template
+            yaxis_title=t('return') + " (%)",
+            height=400,
+            annotations=annotations,
+            template="plotly_white",
+            hovermode="x unified"
         )
         
-        # Statistics annotation
-        fig.add_annotation(
-            x=0.01,
-            y=0.95,
-            xref="paper",
-            yref="paper",
-            text=f"{t('avg_return')} {stats['mean']:.2f}%<br>{t('std_dev')} {stats['std']:.2f}%<br>{t('min')} {stats['min']:.2f}%<br>{t('max')} {stats['max']:.2f}%",  # Increased precision
-            showarrow=False,
-            font=dict(
-                family="Arial",
-                size=14,  # Increased font size
-                color="black"
-            ),
-            align="left",
-            bgcolor="rgba(255, 255, 255, 0.9)",  # More opaque background
-            bordercolor="black",
-            borderwidth=1,
-            borderpad=6  # Increased padding
-        )
-        
-        return fig
+        return fig, {
+            'avg': avg_return,
+            'std': std_dev,
+            'min': min_return,
+            'max': max_return
+        }
     
-    # Statistics for all available timeframes
-    stats = {}
-    timeframes = {
-        '3m': {'window': rolling_window_3m, 'color': 'rgba(65, 105, 225, 0.8)', 'name': t('three_months')},
-        '1y': {'window': rolling_window_1y, 'color': 'rgba(0, 128, 0, 0.8)', 'name': t('one_year')},
-        '3y': {'window': rolling_window_3y, 'color': 'rgba(128, 0, 128, 0.8)', 'name': t('three_years')}
-    }
-    
-    # Tabs for different timeframes inside the rolling returns tab
-    roll_inner_tab_3m, roll_inner_tab_1y, roll_inner_tab_3y, roll_inner_tab_all = st.tabs([
-        t('three_months'), 
-        t('one_year'), 
-        t('three_years'), 
-        t('comparison')
-    ])
-    
-    # Check data availability and calculate statistics
-    has_data = {}
-    for tf, info in timeframes.items():
-        col_name = f'rolling_{tf}_return'
-        has_data[tf] = col_name in rolling_monthly.columns and not rolling_monthly[col_name].dropna().empty
-        
-        if has_data[tf]:
-            # Only use valid data
-            valid_data = rolling_monthly[col_name].dropna()
-            stats[tf] = {
-                'mean': valid_data.mean(),
-                'std': valid_data.std(),
-                'min': valid_data.min(),
-                'max': valid_data.max(),
-                'data': valid_data
-            }
-    
-    # Create individual plots for each period
-    for tf, info in timeframes.items():
-        tab = roll_inner_tab_3m if tf == '3m' else roll_inner_tab_1y if tf == '1y' else roll_inner_tab_3y
-        
-        if has_data[tf]:
-            with tab:
-                fig = create_rolling_returns_plot(
-                    rolling_monthly, 
-                    f'rolling_{tf}_return', 
-                    stats[tf],
-                    info['color'],
-                    info['name']
-                )
-                st.plotly_chart(fig, use_container_width=True)
+    # 3-Month Rolling Returns Tab
+    with rolling_tabs[0]:
+        if not rolling_data_3m.empty:
+            fig_3m, stats_3m = create_rolling_returns_plot(rolling_data_3m, 'rolling_3m_return', 'rgba(65, 105, 225, 0.8)', '3 ' + t('three_months').split()[-1], window_size_3m)
+            if fig_3m:
+                st.plotly_chart(fig_3m, use_container_width=True)
+                filename_3m = f"rolling_3m_{strategy_display_name_for_file}_{period_text}.png"
+                get_image_download_link(fig_3m, filename_3m, "📥 " + t('download_rolling').format('3 ' + t('three_months').split()[-1]))
                 
-                # Add download button
-                rolling_filename = f"rolling_{tf}_returns_{strategy_display_name_for_file}_{period_text}.png"
-                get_image_download_link(fig, rolling_filename, f"📥 {t('download_rolling').format(info['name'])}")
+                # Show statistics
+                st.markdown(f"""
+                <div class="metric-container">
+                    <h4>{t('statistics')}</h4>
+                    <p>{t('avg_return')} {stats_3m['avg']:.2f}%</p>
+                    <p>{t('std_dev')} {stats_3m['std']:.2f}%</p>
+                    <p>{t('min')} {stats_3m['min']:.2f}%</p>
+                    <p>{t('max')} {stats_3m['max']:.2f}%</p>
+                </div>
+                """, unsafe_allow_html=True)
         else:
-            with tab:
-                st.warning(t('not_enough_data').format(info['name'], info['window']))
+            st.warning(t('not_enough_data').format('3 ' + t('three_months').split()[-1], window_size_3m))
     
-    # Comparison plot for all available periods
-    with roll_inner_tab_all:
-        # At least one period must have data
-        if any(has_data.values()):
-            # Create combined plot
-            fig_combined = go.Figure()
+    # 1-Year Rolling Returns Tab
+    with rolling_tabs[1]:
+        if not rolling_data_1y.empty:
+            fig_1y, stats_1y = create_rolling_returns_plot(rolling_data_1y, 'rolling_1y_return', 'rgba(255, 102, 0, 0.8)', '1 ' + t('one_year'), window_size_1y)
+            if fig_1y:
+                st.plotly_chart(fig_1y, use_container_width=True)
+                filename_1y = f"rolling_1y_{strategy_display_name_for_file}_{period_text}.png"
+                get_image_download_link(fig_1y, filename_1y, "📥 " + t('download_rolling').format('1 ' + t('one_year')))
+                
+                # Show statistics
+                st.markdown(f"""
+                <div class="metric-container">
+                    <h4>{t('statistics')}</h4>
+                    <p>{t('avg_return')} {stats_1y['avg']:.2f}%</p>
+                    <p>{t('std_dev')} {stats_1y['std']:.2f}%</p>
+                    <p>{t('min')} {stats_1y['min']:.2f}%</p>
+                    <p>{t('max')} {stats_1y['max']:.2f}%</p>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.warning(t('not_enough_data').format('1 ' + t('one_year'), window_size_1y))
+    
+    # 3-Year Rolling Returns Tab
+    with rolling_tabs[2]:
+        if not rolling_data_3y.empty:
+            fig_3y, stats_3y = create_rolling_returns_plot(rolling_data_3y, 'rolling_3y_return', 'rgba(0, 153, 0, 0.8)', '3 ' + t('three_years').split()[-1], window_size_3y)
+            if fig_3y:
+                st.plotly_chart(fig_3y, use_container_width=True)
+                filename_3y = f"rolling_3y_{strategy_display_name_for_file}_{period_text}.png"
+                get_image_download_link(fig_3y, filename_3y, "📥 " + t('download_rolling').format('3 ' + t('three_years').split()[-1]))
+                
+                # Show statistics
+                st.markdown(f"""
+                <div class="metric-container">
+                    <h4>{t('statistics')}</h4>
+                    <p>{t('avg_return')} {stats_3y['avg']:.2f}%</p>
+                    <p>{t('std_dev')} {stats_3y['std']:.2f}%</p>
+                    <p>{t('min')} {stats_3y['min']:.2f}%</p>
+                    <p>{t('max')} {stats_3y['max']:.2f}%</p>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.warning(t('not_enough_data').format('3 ' + t('three_years').split()[-1], window_size_3y))
+
+    # Comparison Tab
+    with rolling_tabs[3]:
+        # Create DataFrame for monthly aggregated rolling returns
+        rolling_monthly = pd.DataFrame()
+        has_data = False
+        
+        if not rolling_data_3m.empty:
+            rolling_monthly['rolling_3m_return'] = rolling_data_3m['rolling_3m_return'].resample('ME').mean()
+            has_data = True
+        
+        if not rolling_data_1y.empty:
+            rolling_monthly['rolling_1y_return'] = rolling_data_1y['rolling_1y_return'].resample('ME').mean()
+            has_data = True
+        
+        if not rolling_data_3y.empty:
+            rolling_monthly['rolling_3y_return'] = rolling_data_3y['rolling_3y_return'].resample('ME').mean()
+            has_data = True
+        
+        if has_data:
+            # Rename columns for display
+            rolling_monthly.columns = [
+                '3 ' + t('three_months').split()[-1] if 'rolling_3m_return' in rolling_monthly.columns else '',
+                '1 ' + t('one_year') if 'rolling_1y_return' in rolling_monthly.columns else '',
+                '3 ' + t('three_years').split()[-1] if 'rolling_3y_return' in rolling_monthly.columns else ''
+            ]
             
-            # Add each available period
-            for tf, info in timeframes.items():
-                if has_data[tf]:
-                    col_name = f'rolling_{tf}_return'
-                    fig_combined.add_trace(
-                        go.Scatter(
-                            x=rolling_monthly.index,
-                            y=rolling_monthly[col_name],
-                            mode='lines',
-                            name=f"{info['name']} (Ø: {stats[tf]['mean']:.2f}%)",  # Increased precision
-                            line=dict(color=info['color'], width=2.5)  # Increased line width
-                        )
+            # Remove empty columns
+            rolling_monthly = rolling_monthly.loc[:, rolling_monthly.columns != '']
+            
+            # Create comparison plot
+            fig_comparison = go.Figure()
+            
+            colors = ['rgba(65, 105, 225, 0.8)', 'rgba(255, 102, 0, 0.8)', 'rgba(0, 153, 0, 0.8)']
+            for i, col in enumerate(rolling_monthly.columns):
+                fig_comparison.add_trace(
+                    go.Scatter(
+                        x=rolling_monthly.index,
+                        y=rolling_monthly[col],
+                        mode='lines',
+                        name=col,
+                        line=dict(color=colors[i % len(colors)], width=2)
                     )
-            
-            # Determine maximum and minimum values for y-axis
-            max_y = -float('inf')
-            min_y = float('inf')
-            
-            for tf in timeframes:
-                if has_data[tf]:
-                    # Get real min/max values from the data
-                    col_data = rolling_monthly[f'rolling_{tf}_return'].dropna()
-                    if not col_data.empty:
-                        max_y = max(max_y, col_data.max())
-                        min_y = min(min_y, col_data.min())
-            
-            # Add padding to avoid cutoff
-            y_padding = max(abs(max_y), abs(min_y)) * 0.15
+                )
             
             # Adjust layout
-            fig_combined.update_layout(
+            fig_comparison.update_layout(
                 title=t('comparison_title'),
                 xaxis_title=t('date'),
-                yaxis_title=t('return'),
-                height=700,  # Increased height
-                autosize=True,
-                margin=dict(l=50, r=50, t=100, b=50),  # Adjusted margins
-                hovermode='x unified',
-                yaxis=dict(
-                    zeroline=True,
-                    zerolinewidth=1,
-                    zerolinecolor='black',
-                    gridcolor='lightgray',
-                    range=[min_y - y_padding, max_y + y_padding],
-                    tickfont=dict(size=12)  # Increased axis tick font size
-                ),
-                xaxis=dict(
-                    tickfont=dict(size=12)  # Increased axis tick font size
-                ),
+                yaxis_title=t('return') + " (%)",
+                height=500,
+                template="plotly_white",
+                hovermode="x unified",
                 legend=dict(
                     orientation="h",
                     yanchor="bottom",
                     y=1.02,
                     xanchor="right",
-                    x=1,
-                    font=dict(size=12)  # Increased legend text size
-                ),
-                template="plotly_white"  # Use a clean white template
+                    x=1
+                )
             )
             
-            # Statistics table as annotation
-            table_html = f"<b>{t('statistics')}</b><br>"
-            table_html += "<table style='width:100%'>"
-            table_html += f"<tr><th>{t('period')}</th><th>{t('avg_return_pct')}</th><th>{t('std_dev_pct')}</th><th>{t('min_pct')}</th><th>{t('max_pct')}</th></tr>"
+            st.plotly_chart(fig_comparison, use_container_width=True)
             
-            for tf, info in timeframes.items():
-                if has_data[tf]:
-                    table_html += f"<tr><td>{info['name']}</td><td>{stats[tf]['mean']:.2f}%</td><td>{stats[tf]['std']:.2f}%</td><td>{stats[tf]['min']:.2f}%</td><td>{stats[tf]['max']:.2f}%</td></tr>"
+            # Download button for comparison chart
+            filename_comparison = f"rolling_comparison_{strategy_display_name_for_file}_{period_text}.png"
+            get_image_download_link(fig_comparison, filename_comparison, "📥 " + t('download_comparison'))
             
-            table_html += "</table>"
+            # Detailed statistics table
+            st.markdown(f"<h4>{t('detailed_statistics')}</h4>", unsafe_allow_html=True)
             
-            fig_combined.add_annotation(
-                x=0.01,
-                y=0.01,
-                xref="paper",
-                yref="paper",
-                text=table_html,
-                showarrow=False,
-                font=dict(
-                    family="Arial",
-                    size=14,  # Increased text size
-                    color="black"
-                ),
-                align="left",
-                bgcolor="rgba(255, 255, 255, 0.9)",  # More opaque background
-                bordercolor="black",
-                borderwidth=1,
-                borderpad=6  # Increased padding
-            )
-            
-            # Display chart
-            st.plotly_chart(fig_combined, use_container_width=True)
-            
-            # Add download button
-            rolling_filename = f"rolling_returns_comparison_{strategy_display_name_for_file}_{period_text}.png"
-            get_image_download_link(fig_combined, rolling_filename, "📥 " + t('download_comparison'))
-            
-            # Additional data in a table
-            st.subheader(t('detailed_statistics'))
             stats_df = pd.DataFrame({
-                t('period'): [info['name'] for tf, info in timeframes.items() if has_data[tf]],
-                t('avg_return_pct'): [stats[tf]['mean'] for tf in timeframes if has_data[tf]],
-                t('std_dev_pct'): [stats[tf]['std'] for tf in timeframes if has_data[tf]],
-                t('min_pct'): [stats[tf]['min'] for tf in timeframes if has_data[tf]],
-                t('max_pct'): [stats[tf]['max'] for tf in timeframes if has_data[tf]]
+                t('period'): rolling_monthly.columns,
+                t('avg_return_pct'): [round(rolling_monthly[col].mean(), 2) for col in rolling_monthly.columns],
+                t('std_dev_pct'): [round(rolling_monthly[col].std(), 2) for col in rolling_monthly.columns],
+                t('min_pct'): [round(rolling_monthly[col].min(), 2) for col in rolling_monthly.columns],
+                t('max_pct'): [round(rolling_monthly[col].max(), 2) for col in rolling_monthly.columns]
             })
-            st.dataframe(stats_df.set_index(t('period')).style.format({
-                t('avg_return_pct'): '{:.2f}',  # Increased precision
-                t('std_dev_pct'): '{:.2f}',     # Increased precision
-                t('min_pct'): '{:.2f}',         # Increased precision
-                t('max_pct'): '{:.2f}'          # Increased precision
-            }))
-        else:
-            st.warning(t('not_enough_data').format(t('rolling_returns').split()[0], ""))
             
+            st.table(stats_df)
+        else:
+            st.warning("Not enough data for any rolling returns period to make a comparison.")
+    
     st.markdown("</div>", unsafe_allow_html=True)
-        
+
+# DETAILS TAB - Detailed performance metrics
 with details_tab:
-    # Detailed metrics section
+    # Replace the date info with more compact version
+    date_info_html = f"""
+    <div class="date-info">
+        <strong>Calculation Period:</strong> {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}
+    </div>
+    """
+    st.markdown(date_info_html, unsafe_allow_html=True)
+    
     st.markdown("""<div class="metric-container">
-        <h3 class="metric-section-header">📋 """ + t('detailed_analysis') + """</h3>
+        <h3 class="metric-section-header">📊 Detailed Metrics</h3>
     """, unsafe_allow_html=True)
     
-    # Performance metrics
-    st.markdown("##### " + t('performance_metrics'))
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(label=t('cagr'), value=f"{cagr*100:.2f}%")
-    with col2:
-        st.metric(label=t('total_return'), value=f"{total_return*100:.2f}%")
-    with col3:
-        st.metric(label=t('volatility'), value=f"{annual_volatility*100:.2f}%")
-    with col4:
-        st.metric(label=t('max_drawdown'), value=f"{max_drawdown:.2f}%")
+    # Add a style for detailed metrics table - vertical compact layout
+    st.markdown("""
+    <style>
+    .vertical-metrics-table {
+        width: 100%;
+        max-width: 600px;
+        margin: 0 auto;
+        border-collapse: collapse;
+        font-family: Arial, sans-serif;
+        font-size: 13px;
+    }
+    .vertical-metrics-table td {
+        padding: 4px 10px;
+        border-bottom: 1px solid #e1e4e8;
+    }
+    .vertical-metrics-table tr:last-child td {
+        border-bottom: none;
+    }
+    .metric-name {
+        font-weight: 600;
+        text-align: left;
+    }
+    .metric-value {
+        text-align: right;
+    }
+    .positive-value {
+        color: #10b981;
+        font-weight: 600;
+    }
+    .negative-value {
+        color: #ef4444;
+        font-weight: 600;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
-    # Risk metrics
-    st.markdown("##### " + t('risk_metrics'))
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(label=t('sharpe_ratio'), value=f"{sharpe:.2f}")
-    with col2:
-        st.metric(label=t('sortino_ratio'), value=f"{sortino:.2f}")
-    with col3:
-        st.metric(label=t('tracking_error'), value=f"{tracking_error*100:.2f}%")
-    with col4:
-        st.metric(label=t('information_ratio'), value=f"{information_ratio:.2f}")
-    
-    # Relative metrics
-    st.markdown("##### " + t('relative_metrics'))
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(label=t('beta'), value=f"{beta:.2f}")
-    with col2:
-        st.metric(label=t('alpha'), value=f"{alpha_annualized_pct:.2f}%")
-    with col3:
-        st.metric(label=t('avg_recovery'), value=f"{avg_recovery:.0f} {t('days')}")
-    with col4:
-        st.metric(label=t('max_recovery'), value=f"{max_recovery:.0f} {t('days')}")
+    # Helper function to add color to values
+    def format_value(value, is_percentage=True, reverse=False):
+        if isinstance(value, str):
+            return value
         
-    # Period Performance
-    st.markdown("##### " + t('period_performance'))
+        if value > 0:
+            color_class = "negative-value" if reverse else "positive-value"
+        elif value < 0:
+            color_class = "positive-value" if reverse else "negative-value"
+        else:
+            color_class = ""
+            
+        formatted = f"{value:.2f}{'%' if is_percentage else ''}"
+        return f'<span class="{color_class}">{formatted}</span>'
     
-    # Create DataFrame for better presentation
-    period_data = pd.DataFrame({
-        t('period'): [t('ytd'), t('one_year_perf'), t('three_year_perf'), t('five_year_perf')],
-        t('strategy'): [
-            f"{ytd_perf:.2f}%", 
-            f"{one_year_perf:.2f}%", 
-            f"{three_year_perf:.2f}%", 
-            f"{five_year_perf:.2f}%"
-        ],
-        t('benchmark_label'): [
-            f"{ytd_bench_perf:.2f}%", 
-            f"{one_year_bench_perf:.2f}%", 
-            f"{three_year_bench_perf:.2f}%", 
-            f"{five_year_bench_perf:.2f}%"
-        ],
-        'Difference': [
-            f"{ytd_perf - ytd_bench_perf:.2f}%", 
-            f"{one_year_perf - one_year_bench_perf:.2f}%", 
-            f"{three_year_perf - three_year_bench_perf:.2f}%", 
-            f"{five_year_perf - five_year_bench_perf:.2f}%"
-        ]
-    })
+    # Create color-coded value strings
+    cagr_value = format_value(cagr*100)
+    tr_value = format_value(total_return*100)
+    vol_value = format_value(annual_volatility*100, reverse=True)
+    mdd_value = format_value(max_drawdown, reverse=True)
+    sharpe_value = format_value(sharpe, is_percentage=False)
+    sortino_value = format_value(sortino, is_percentage=False)
+    te_value = format_value(tracking_error*100, reverse=True)
+    beta_value = format_value(beta, is_percentage=False)
+    alpha_value = format_value(alpha_annualized_pct)
     
-    # Display the performance comparison table
-    st.dataframe(period_data.set_index(t('period')), use_container_width=True)
+    # Create vertical layout HTML for detailed metrics table
+    detailed_table_html = f"""
+    <table class="vertical-metrics-table">
+        <tr>
+            <td class="metric-name">CAGR</td>
+            <td class="metric-value">{cagr_value}</td>
+        </tr>
+        <tr>
+            <td class="metric-name">Total Return</td>
+            <td class="metric-value">{tr_value}</td>
+        </tr>
+        <tr>
+            <td class="metric-name">Volatility (p.a.)</td>
+            <td class="metric-value">{vol_value}</td>
+        </tr>
+        <tr>
+            <td class="metric-name">Max Drawdown</td>
+            <td class="metric-value">{mdd_value}</td>
+        </tr>
+        <tr>
+            <td class="metric-name">Alpha (p.a.)</td>
+            <td class="metric-value">{alpha_value}</td>
+        </tr>
+        <tr>
+            <td class="metric-name">Beta</td>
+            <td class="metric-value">{beta_value}</td>
+        </tr>
+        <tr>
+            <td class="metric-name">Sharpe Ratio</td>
+            <td class="metric-value">{sharpe_value}</td>
+        </tr>
+        <tr>
+            <td class="metric-name">Sortino Ratio</td>
+            <td class="metric-value">{sortino_value}</td>
+        </tr>
+        <tr>
+            <td class="metric-name">Tracking Error</td>
+            <td class="metric-value">{te_value}</td>
+        </tr>
+    </table>
+    """
+    
+    # Display the custom formatted table
+    st.markdown(detailed_table_html, unsafe_allow_html=True)
     
     st.markdown("</div>", unsafe_allow_html=True)
 
 # Add footer with credits
 st.markdown("""
 <div style="text-align: center; margin-top: 20px; padding: 10px; color: #666;">
-    <p>© 2024</p>
+    <p>© 2024 - Quantmade AI</p>
 </div>
-""", unsafe_allow_html=True) 
+""", unsafe_allow_html=True)
