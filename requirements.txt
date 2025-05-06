@@ -5,3 +5,4 @@ matplotlib==3.8.2
 plotly==5.18.0
 pillow==10.1.0
 kaleido==0.2.1 
+seaborn==0.13.2
