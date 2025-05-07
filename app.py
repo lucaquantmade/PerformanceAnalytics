@@ -889,7 +889,7 @@ quant_data["StrategyValue"] = 100 * (1 + quant_data["Returns"]).cumprod()
 quant_data["Benchmark"] = 100 * (1 + quant_data["Benchmark_Returns"]).cumprod()
 quant_data["drawdown"] = -((quant_data["StrategyValue"].cummax() - quant_data["StrategyValue"])/quant_data["StrategyValue"].cummax())*100
 quant_data["benchmark_drawdown"] = -((quant_data["Benchmark"].cummax() - quant_data["Benchmark"])/quant_data["Benchmark"].cummax())*100
-quant_data["monthly_returns"] = (1 + quant_data["Returns"]).resample("ME").prod() - 1
+quant_data["monthly_returns"] = (1 + quant_data["Returns"]).resample("M").prod() - 1
 
 # Filter data to start from 2015 at the latest
 max_start_date = pd.Timestamp('2015-01-01')
@@ -963,7 +963,7 @@ filtered_data["Cummax"] = filtered_data["StrategyValue"].cummax()
 filtered_data["drawdown"] = -((filtered_data["Cummax"] - filtered_data["StrategyValue"])/filtered_data["Cummax"])*100
 filtered_data["benchmark_drawdown"] = -((filtered_data["Benchmark"].cummax() - filtered_data["Benchmark"])/filtered_data["Benchmark"].cummax())*100
 filtered_data["Monat"] = filtered_data.index.month
-filtered_data["monthly_returns"] = (1 + filtered_data["Returns"]).resample("ME").prod() - 1
+filtered_data["monthly_returns"] = (1 + filtered_data["Returns"]).resample("M").prod() - 1
 filtered_data.fillna(0, inplace=True)
 
 # Calculate metrics
@@ -992,9 +992,9 @@ if "Cummax" not in filtered_data.columns:
 avg_recovery, max_recovery = calculate_recovery_times(filtered_data)
 
 # beta and alpha with monthly returns
-monthly_returns = filtered_data["Returns"].resample("ME").apply(lambda x: (1 + x).prod() - 1)
+monthly_returns = filtered_data["Returns"].resample("M").apply(lambda x: (1 + x).prod() - 1)
 monthly_returns.fillna(0, inplace=True)
-benchmark_monthly_returns = filtered_data["Benchmark_Returns"].resample("ME").apply(lambda x: (1 + x).prod() - 1)
+benchmark_monthly_returns = filtered_data["Benchmark_Returns"].resample("M").apply(lambda x: (1 + x).prod() - 1)
 benchmark_monthly_returns.fillna(0, inplace=True)
 
 # Calculate beta
