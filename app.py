@@ -688,7 +688,12 @@ TRANSLATIONS = {
         'detailed_analysis': 'Detailed Analysis',
         'performance_analysis': 'Performance Analysis',
         'risk_analysis': 'Risk Analysis',
+<<<<<<< HEAD
         'return_analysis': 'Return Analysis'
+=======
+        'return_analysis': 'Return Analysis',
+        'benchmark': 'Equal Weight Benchmark (50/50)'
+>>>>>>> 9899509 (Final version for website (hopefully))
     },
     'de': {
         # General UI
@@ -789,7 +794,12 @@ TRANSLATIONS = {
         'detailed_analysis': 'Detaillierte Analyse',
         'performance_analysis': 'Performance-Analyse',
         'risk_analysis': 'Risiko-Analyse',
+<<<<<<< HEAD
         'return_analysis': 'Rendite-Analyse'
+=======
+        'return_analysis': 'Rendite-Analyse',
+        'benchmark': 'Equal Weight Benchmark (50/50)'
+>>>>>>> 9899509 (Final version for website (hopefully))
     }
 }
 
@@ -869,6 +879,7 @@ if returns_df.empty:
     st.error("No data was loaded. Please check file paths.")
     st.stop()
 
+<<<<<<< HEAD
 # Calculate weighted portfolio returns
 quant_data = pd.DataFrame(index=returns_df.index)
 quant_data["Returns"] = 0
@@ -877,13 +888,48 @@ quant_data["Benchmark_Returns"] = 0
 
 for quant_name in selected_quant_names:
     quant_data["Returns"] += returns_df[quant_name] * weights[quant_name]
+=======
+# Calculate weighted portfolio returns and create 50/50 blended benchmark
+quant_data = pd.DataFrame(index=returns_df.index)
+quant_data["Returns"] = 0
+
+# Create 50/50 blend of benchmarks (each strategy contributes its own benchmark at 50%)
+# The benchmarks in the CSV files should already be the equal-weight indices
+quant_data["Benchmark_Returns"] = 0
+for quant_name in selected_quant_names:
+    # Strategy returns with weights
+    quant_data["Returns"] += returns_df[quant_name] * weights[quant_name]
+    # Benchmark returns with weights - these are now equal-weight benchmark returns
+>>>>>>> 9899509 (Final version for website (hopefully))
     quant_data["Benchmark_Returns"] += benchmark_returns_df[quant_name] * weights[quant_name]
 
 # Calculate additional metrics
 quant_data["StrategyValue"] = 100 * (1 + quant_data["Returns"]).cumprod()
 quant_data["Benchmark"] = 100 * (1 + quant_data["Benchmark_Returns"]).cumprod()
 quant_data["drawdown"] = -((quant_data["StrategyValue"].cummax() - quant_data["StrategyValue"])/quant_data["StrategyValue"].cummax())*100
+<<<<<<< HEAD
 quant_data["monthly_returns"] = (1 + quant_data["Returns"]).resample("M").prod() - 1
+=======
+quant_data["benchmark_drawdown"] = -((quant_data["Benchmark"].cummax() - quant_data["Benchmark"])/quant_data["Benchmark"].cummax())*100
+quant_data["monthly_returns"] = (1 + quant_data["Returns"]).resample("M").prod() - 1
+
+# Filter data to start from 2015 at the latest
+max_start_date = pd.Timestamp('2015-01-01')
+if quant_data.index.min() < max_start_date:
+    # If data goes back before 2015, limit it to start from 2015
+    quant_data = quant_data.loc[max_start_date:].copy()
+    
+    # Recalibrate to 100 after filtering
+    first_strategy_value = quant_data["StrategyValue"].iloc[0]
+    first_benchmark_value = quant_data["Benchmark"].iloc[0]
+    
+    quant_data["StrategyValue"] = quant_data["StrategyValue"] / first_strategy_value * 100
+    quant_data["Benchmark"] = quant_data["Benchmark"] / first_benchmark_value * 100
+    
+    # Recalculate drawdowns after rescaling
+    quant_data["drawdown"] = -((quant_data["StrategyValue"].cummax() - quant_data["StrategyValue"])/quant_data["StrategyValue"].cummax())*100
+    quant_data["benchmark_drawdown"] = -((quant_data["Benchmark"].cummax() - quant_data["Benchmark"])/quant_data["Benchmark"].cummax())*100
+>>>>>>> 9899509 (Final version for website (hopefully))
 
 # Dashboard header with strategy name
 strategy_display_name = " + ".join(selected_quant_names)
@@ -929,6 +975,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 # Filter data by selected time period
 filtered_data = quant_data.loc[start_date:end_date].copy()
 
+<<<<<<< HEAD
 # Recalculate values if start_date is not the first date
 if start_date != min_date:
     # Scale data to 100, calculate drawdown after scaling
@@ -942,6 +989,21 @@ if start_date != min_date:
     filtered_data["Monat"] = filtered_data.index.month
     filtered_data["monthly_returns"] = (1 + filtered_data["Returns"]).res.prod() - 1
     filtered_data.fillna(0, inplace=True)
+=======
+# Always recalibrate to 100 at the beginning of the selected period
+# Scale data to 100, calculate drawdown after scaling
+first_value = filtered_data["StrategyValue"].iloc[0]
+first_benchmark = filtered_data["Benchmark"].iloc[0]
+
+filtered_data["StrategyValue"] = filtered_data["StrategyValue"] / first_value * 100
+filtered_data["Benchmark"] = filtered_data["Benchmark"] / first_benchmark * 100
+filtered_data["Cummax"] = filtered_data["StrategyValue"].cummax()
+filtered_data["drawdown"] = -((filtered_data["Cummax"] - filtered_data["StrategyValue"])/filtered_data["Cummax"])*100
+filtered_data["benchmark_drawdown"] = -((filtered_data["Benchmark"].cummax() - filtered_data["Benchmark"])/filtered_data["Benchmark"].cummax())*100
+filtered_data["Monat"] = filtered_data.index.month
+filtered_data["monthly_returns"] = (1 + filtered_data["Returns"]).resample("M").prod() - 1
+filtered_data.fillna(0, inplace=True)
+>>>>>>> 9899509 (Final version for website (hopefully))
 
 # Calculate metrics
 max_drawdown = abs(filtered_data["drawdown"].min())
@@ -969,9 +1031,15 @@ if "Cummax" not in filtered_data.columns:
 avg_recovery, max_recovery = calculate_recovery_times(filtered_data)
 
 # beta and alpha with monthly returns
+<<<<<<< HEAD
 monthly_returns = filtered_data["Returns"].res.apply(lambda x: (1 + x).prod() - 1)
 monthly_returns.fillna(0, inplace=True)
 benchmark_monthly_returns = filtered_data["Benchmark_Returns"].res.apply(lambda x: (1 + x).prod() - 1)
+=======
+monthly_returns = filtered_data["Returns"].resample("M").apply(lambda x: (1 + x).prod() - 1)
+monthly_returns.fillna(0, inplace=True)
+benchmark_monthly_returns = filtered_data["Benchmark_Returns"].resample("M").apply(lambda x: (1 + x).prod() - 1)
+>>>>>>> 9899509 (Final version for website (hopefully))
 benchmark_monthly_returns.fillna(0, inplace=True)
 
 # Calculate beta
@@ -999,6 +1067,7 @@ five_year_date = all_dates[all_dates >= five_years_ago].min() if any(all_dates >
 # Calculate performance values
 last_date = quant_data.index.max()
 
+<<<<<<< HEAD
 # Strategy performance
 ytd_perf = (quant_data.loc[last_date, 'StrategyValue'] / quant_data.loc[ytd_start_date, 'StrategyValue'] - 1) * 100 if ytd_start_date != last_date else 0
 one_year_perf = (quant_data.loc[last_date, 'StrategyValue'] / quant_data.loc[one_year_date, 'StrategyValue'] - 1) * 100 if one_year_date != last_date else 0
@@ -1010,6 +1079,52 @@ ytd_bench_perf = (quant_data.loc[last_date, 'Benchmark'] / quant_data.loc[ytd_st
 one_year_bench_perf = (quant_data.loc[last_date, 'Benchmark'] / quant_data.loc[one_year_date, 'Benchmark'] - 1) * 100 if one_year_date != last_date else 0
 three_year_bench_perf = (quant_data.loc[last_date, 'Benchmark'] / quant_data.loc[three_year_date, 'Benchmark'] - 1) * 100 if three_year_date != last_date else 0
 five_year_bench_perf = (quant_data.loc[last_date, 'Benchmark'] / quant_data.loc[five_year_date, 'Benchmark'] - 1) * 100 if five_year_date != last_date else 0
+=======
+# Initialize period performances with zeros
+ytd_perf, one_year_perf, three_year_perf, five_year_perf = 0, 0, 0, 0
+ytd_bench_perf, one_year_bench_perf, three_year_bench_perf, five_year_bench_perf = 0, 0, 0, 0
+
+# Strategy performance
+if ytd_start_date != last_date:
+    # Create a temporary scaled dataframe for each period to always start at 100
+    ytd_data = quant_data.loc[ytd_start_date:last_date].copy()
+    first_value_ytd = ytd_data["StrategyValue"].iloc[0]
+    first_bench_ytd = ytd_data["Benchmark"].iloc[0]
+    ytd_data["StrategyValue"] = ytd_data["StrategyValue"] / first_value_ytd * 100
+    ytd_data["Benchmark"] = ytd_data["Benchmark"] / first_bench_ytd * 100
+    ytd_perf = (ytd_data["StrategyValue"].iloc[-1] / 100 - 1) * 100
+    ytd_bench_perf = (ytd_data["Benchmark"].iloc[-1] / 100 - 1) * 100
+
+if one_year_date != last_date:
+    # One year period
+    one_year_data = quant_data.loc[one_year_date:last_date].copy()
+    first_value_1y = one_year_data["StrategyValue"].iloc[0]
+    first_bench_1y = one_year_data["Benchmark"].iloc[0]
+    one_year_data["StrategyValue"] = one_year_data["StrategyValue"] / first_value_1y * 100
+    one_year_data["Benchmark"] = one_year_data["Benchmark"] / first_bench_1y * 100
+    one_year_perf = (one_year_data["StrategyValue"].iloc[-1] / 100 - 1) * 100
+    one_year_bench_perf = (one_year_data["Benchmark"].iloc[-1] / 100 - 1) * 100
+
+if three_year_date != last_date:
+    # Three year period
+    three_year_data = quant_data.loc[three_year_date:last_date].copy()
+    first_value_3y = three_year_data["StrategyValue"].iloc[0]
+    first_bench_3y = three_year_data["Benchmark"].iloc[0]
+    three_year_data["StrategyValue"] = three_year_data["StrategyValue"] / first_value_3y * 100
+    three_year_data["Benchmark"] = three_year_data["Benchmark"] / first_bench_3y * 100
+    three_year_perf = (three_year_data["StrategyValue"].iloc[-1] / 100 - 1) * 100
+    three_year_bench_perf = (three_year_data["Benchmark"].iloc[-1] / 100 - 1) * 100
+
+if five_year_date != last_date:
+    # Five year period
+    five_year_data = quant_data.loc[five_year_date:last_date].copy()
+    first_value_5y = five_year_data["StrategyValue"].iloc[0]
+    first_bench_5y = five_year_data["Benchmark"].iloc[0]
+    five_year_data["StrategyValue"] = five_year_data["StrategyValue"] / first_value_5y * 100
+    five_year_data["Benchmark"] = five_year_data["Benchmark"] / first_bench_5y * 100
+    five_year_perf = (five_year_data["StrategyValue"].iloc[-1] / 100 - 1) * 100
+    five_year_bench_perf = (five_year_data["Benchmark"].iloc[-1] / 100 - 1) * 100
+>>>>>>> 9899509 (Final version for website (hopefully))
 
 # Create main dashboard tabs
 kpi_tab, performance_tab, returns_tab, rolling_tab, details_tab = st.tabs([
@@ -1125,11 +1240,18 @@ with performance_tab:
         <h3 class="metric-section-header">📈 """ + t('performance_drawdown') + """</h3>
     """, unsafe_allow_html=True)
 
+<<<<<<< HEAD
     # Create subplot with two charts
     fig = make_subplots(rows=2, cols=1, 
                     shared_xaxes=True,
                     vertical_spacing=0.03,  # Decreased for better spacing in taller chart
                     subplot_titles=(t('strategy_value'), None),
+=======
+    # Create subplot with two charts - remove subplot titles to avoid "undefined" text
+    fig = make_subplots(rows=2, cols=1, 
+                    shared_xaxes=True,
+                    vertical_spacing=0.03,  # Decreased for better spacing in taller chart
+>>>>>>> 9899509 (Final version for website (hopefully))
                     row_heights=[0.7, 0.3])  # Adjusted for better proportion with taller chart
 
     # Strategy value plot with area filling
@@ -1139,7 +1261,11 @@ with performance_tab:
             y=filtered_data['StrategyValue'],
             mode='lines',
             name=t('strategy_value'),
+<<<<<<< HEAD
             line=dict(color='rgba(65, 105, 225, 0.8)', width=2),
+=======
+            line=dict(color='rgba(65, 105, 225, 0.8)', width=1),  # Increased line width
+>>>>>>> 9899509 (Final version for website (hopefully))
             fill='tozeroy',
             fillcolor='rgba(65, 105, 225, 0.1)'
         ),
@@ -1153,28 +1279,64 @@ with performance_tab:
             y=filtered_data['Benchmark'],
             mode='lines',
             name=t('benchmark'),
+<<<<<<< HEAD
             line=dict(color='rgba(128, 128, 128, 0.8)', width=2),
             fill='tozeroy',
             fillcolor='rgba(128, 128, 128, 0.1)'
+=======
+            line=dict(color='rgba(255, 85, 0, 0.8)', width=1),  # Increased line width
+            fill='tozeroy',
+            fillcolor='rgba(255, 85, 0, 0.1)'
+>>>>>>> 9899509 (Final version for website (hopefully))
         ),
         row=1, col=1
     )
 
+<<<<<<< HEAD
     # Drawdown plot with area filling
+=======
+    # Drawdown plots
+    # Strategy drawdown
+>>>>>>> 9899509 (Final version for website (hopefully))
     fig.add_trace(
         go.Scatter(
             x=filtered_data.index,
             y=filtered_data['drawdown'],
             mode='lines',
+<<<<<<< HEAD
             name=t('drawdown'),
             line=dict(color='rgba(128, 0, 128, 0.8)', width=2),
             fill='tozeroy',
             fillcolor='rgba(128, 0, 128, 0.1)'
+=======
+            name=t('strategy') + " " + t('drawdown'),
+            line=dict(color='rgba(65, 105, 225, 0.8)', width=1),  # Increased line width
+            fill='tozeroy',
+            fillcolor='rgba(65, 105, 225, 0.1)'
+        ),
+        row=2, col=1
+    )
+    
+    # Benchmark drawdown
+    fig.add_trace(
+        go.Scatter(
+            x=filtered_data.index,
+            y=filtered_data['benchmark_drawdown'],
+            mode='lines',
+            name=t('benchmark_label') + " " + t('drawdown'),
+            line=dict(color='rgba(255, 85, 0, 0.8)', width=1),  # Increased line width
+            fill='tozeroy',
+            fillcolor='rgba(255, 85, 0, 0.1)'
+>>>>>>> 9899509 (Final version for website (hopefully))
         ),
         row=2, col=1
     )
 
+<<<<<<< HEAD
     # Adjust layout
+=======
+    # Adjust layout with larger font sizes and increased height and margins
+>>>>>>> 9899509 (Final version for website (hopefully))
     fig.update_layout(
         height=900,  # Increased height by factor of 1.5 (from 600 to 900)
         showlegend=True,
@@ -1186,11 +1348,16 @@ with performance_tab:
             y=1.02, 
             xanchor="right", 
             x=1,
+<<<<<<< HEAD
             font=dict(size=12)  # Increased legend text size
+=======
+            font=dict(size=16)  # Increased legend text size
+>>>>>>> 9899509 (Final version for website (hopefully))
         ),
         template="plotly_white"  # Use a clean white template
     )
 
+<<<<<<< HEAD
     # Y-axis labels
     fig.update_yaxes(title_text=t('value'), row=1, col=1, tickfont=dict(size=12))  # Increased tick font size
     fig.update_yaxes(title_text=t('drawdown'), row=2, col=1, tickfont=dict(size=12))  # Increased tick font size
@@ -1203,17 +1370,57 @@ with performance_tab:
         col=1, 
         title_standoff=0, 
         tickfont=dict(size=12)  # Increased tick font size
+=======
+    # Add explicit titles to each subplot instead of using subplot_titles
+    fig.update_yaxes(
+        title_text=t('strategy_value'),
+        title_font=dict(size=16),
+        tickfont=dict(size=16),
+        row=1, 
+        col=1
+    )
+    
+    fig.update_yaxes(
+        title_text=t('drawdown'),
+        title_font=dict(size=16),
+        tickfont=dict(size=16),
+        row=2, 
+        col=1
+    )
+    
+    # X-axis between plots
+    fig.update_xaxes(showticklabels=False, row=1, col=1)  # Hide X-axis in upper plot 
+    
+    fig.update_xaxes(
+        title_text=t('date'),
+        title_font=dict(size=16),
+        tickfont=dict(size=16),
+        title_standoff=5,
+        row=2, 
+        col=1
+>>>>>>> 9899509 (Final version for website (hopefully))
     )
     
     # Display chart
     st.plotly_chart(fig, use_container_width=True)
     
+<<<<<<< HEAD
     # Add download button for performance chart
+=======
+    # Add download button for performance chart with higher resolution
+>>>>>>> 9899509 (Final version for website (hopefully))
     strategy_name = "_".join(selected_quant_files) if len(selected_quant_files) > 1 else selected_quant_files[0]
     strategy_display_name_for_file = "_".join(selected_quant_names)
     period_text = selected_period if selected_period else f"{start_date.strftime('%Y%m%d')}-{end_date.strftime('%Y%m%d')}"
     performance_filename = f"performance_drawdown_{strategy_display_name_for_file}_{period_text}.png"
+<<<<<<< HEAD
     get_image_download_link(fig, performance_filename, "📥 " + t('download_performance'))
+=======
+    
+    # Increased width, height, and scale for higher resolution download
+    get_image_download_link(fig, performance_filename, "📥 " + t('download_performance'), 
+                           width=2400, height=1600, scale=3)
+>>>>>>> 9899509 (Final version for website (hopefully))
     
     # Close chart container
     st.markdown("</div>", unsafe_allow_html=True)
@@ -1366,12 +1573,20 @@ with returns_tab:
                 title=None,
                 side='top',
                 tickangle=0,
+<<<<<<< HEAD
                 tickfont=dict(size=12)
+=======
+                tickfont=dict(size=24)
+>>>>>>> 9899509 (Final version for website (hopefully))
             ),
             yaxis=dict(
                 title=None,
                 autorange="reversed",  # To keep newest years at top
+<<<<<<< HEAD
                 tickfont=dict(size=12)
+=======
+                tickfont=dict(size=24)
+>>>>>>> 9899509 (Final version for website (hopefully))
             )
         )
         
@@ -1453,40 +1668,66 @@ with rolling_tab:
         min_return = data[column].min()
         max_return = data[column].max()
         
+<<<<<<< HEAD
         # Create plot
         fig = go.Figure()
         
         # Main rolling returns line
+=======
+        # Create plot with increased dimensions
+        fig = go.Figure()
+        
+        # Main rolling returns line with increased width
+>>>>>>> 9899509 (Final version for website (hopefully))
         fig.add_trace(
             go.Scatter(
                 x=data.index, 
                 y=data[column],
                 mode='lines',
                 name=f"{period_name} {t('rolling_returns')}",
+<<<<<<< HEAD
                 line=dict(color=color, width=2)
             )
         )
         
         # Average line
+=======
+                line=dict(color=color, width=1.5)  # Increased line width
+            )
+        )
+        
+        # Average line shape
+>>>>>>> 9899509 (Final version for website (hopefully))
         fig.add_shape(
             type="line",
             x0=data.index.min(),
             y0=avg_return,
             x1=data.index.max(),
             y1=avg_return,
+<<<<<<< HEAD
             line=dict(color="green", width=1, dash="dash"),
             name=t('average')
         )
         
         # Standard deviation bands
+=======
+            line=dict(color="green", width=1, dash="dash")  # Increased line width
+        )
+        
+        # Standard deviation bands shapes with increased width
+>>>>>>> 9899509 (Final version for website (hopefully))
         fig.add_shape(
             type="line",
             x0=data.index.min(),
             y0=avg_return + std_dev,
             x1=data.index.max(),
             y1=avg_return + std_dev,
+<<<<<<< HEAD
             line=dict(color="gray", width=1, dash="dot"),
             name="+1 σ"
+=======
+            line=dict(color="gray", width=1, dash="dot")  # Increased line width
+>>>>>>> 9899509 (Final version for website (hopefully))
         )
         
         fig.add_shape(
@@ -1495,6 +1736,7 @@ with rolling_tab:
             y0=avg_return - std_dev,
             x1=data.index.max(),
             y1=avg_return - std_dev,
+<<<<<<< HEAD
             line=dict(color="gray", width=1, dash="dot"),
             name="-1 σ"
         )
@@ -1548,6 +1790,79 @@ with rolling_tab:
             annotations=annotations,
             template="plotly_white",
             hovermode="x unified"
+=======
+            line=dict(color="gray", width=1, dash="dot")  # Increased line width
+        )
+        
+        # Zusätzliche Traces für die Legende
+        # Durchschnittslinie
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode='lines',
+                name="average",
+                line=dict(color="green", width=1, dash="dash")
+            )
+        )
+        
+        # Standardabweichung +1σ
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode='lines',
+                name="+1σ",
+                line=dict(color="gray", width=1, dash="dot")
+            )
+        )
+        
+        # Standardabweichung -1σ
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode='lines',
+                name="-1σ",
+                line=dict(color="gray", width=1, dash="dot")
+            )
+        )
+        
+        # Statt Annotations eine Legendenbox für Statistiken hinzufügen
+        # Leere Liste für Annotations, da wir jetzt die Legende verwenden
+        annotations = []
+        
+        # Adjust layout with increased dimensions and font sizes
+        fig.update_layout(
+            title=t('rolling_returns_title').format(period_name, avg_return, std_dev),
+            xaxis_title=t('date'),
+            yaxis_title=t('return'),
+            height=600,  # Increased height
+            annotations=annotations,
+            template="plotly_white",
+            hovermode="x unified",
+            title_font=dict(size=36),  # Increased title font size
+            margin=dict(l=60, r=60, t=100, b=60),  # Increased margins
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1,
+                font=dict(size=16)
+            )
+        )
+        
+        # Increase axis font sizes
+        fig.update_xaxes(
+            title_font=dict(size=24),
+            tickfont=dict(size=24)
+        )
+        
+        fig.update_yaxes(
+            title_font=dict(size=24),
+            tickfont=dict(size=24)
+>>>>>>> 9899509 (Final version for website (hopefully))
         )
         
         return fig, {
@@ -1567,6 +1882,7 @@ with rolling_tab:
                 get_image_download_link(fig_3m, filename_3m, "📥 " + t('download_rolling').format('3 ' + t('three_months').split()[-1]))
                 
                 # Show statistics
+<<<<<<< HEAD
                 st.markdown(f"""
                 <div class="metric-container">
                     <h4>{t('statistics')}</h4>
@@ -1576,19 +1892,40 @@ with rolling_tab:
                     <p>{t('max')} {stats_3m['max']:.2f}%</p>
                 </div>
                 """, unsafe_allow_html=True)
+=======
+                # Erstelle eine Tabelle für die Statistiken im gleichen Format wie die anderen Tabellen
+                stats_data = {
+                    "Metric": ["Durchschnitt", "Standardabweichung", "Minimum", "Maximum"],
+                    "Value": [
+                        f"{stats_3m['avg']:.2f}%",
+                        f"{stats_3m['std']:.2f}%",
+                        f"{stats_3m['min']:.2f}%",
+                        f"{stats_3m['max']:.2f}%"
+                    ]
+                }
+                
+                # Konvertiere zu DataFrame und zeige als HTML-Tabelle an
+                stats_df = pd.DataFrame(stats_data)
+                st.write(stats_df.to_html(escape=False, index=False, classes='simple-table'), unsafe_allow_html=True)
+>>>>>>> 9899509 (Final version for website (hopefully))
         else:
             st.warning(t('not_enough_data').format('3 ' + t('three_months').split()[-1], window_size_3m))
     
     # 1-Year Rolling Returns Tab
     with rolling_tabs[1]:
         if not rolling_data_1y.empty:
+<<<<<<< HEAD
             fig_1y, stats_1y = create_rolling_returns_plot(rolling_data_1y, 'rolling_1y_return', 'rgba(255, 102, 0, 0.8)', '1 ' + t('one_year'), window_size_1y)
+=======
+            fig_1y, stats_1y = create_rolling_returns_plot(rolling_data_1y, 'rolling_1y_return', 'rgba(255, 102, 0, 0.8)', t('one_year'), window_size_1y)
+>>>>>>> 9899509 (Final version for website (hopefully))
             if fig_1y:
                 st.plotly_chart(fig_1y, use_container_width=True)
                 filename_1y = f"rolling_1y_{strategy_display_name_for_file}_{period_text}.png"
                 get_image_download_link(fig_1y, filename_1y, "📥 " + t('download_rolling').format('1 ' + t('one_year')))
                 
                 # Show statistics
+<<<<<<< HEAD
                 st.markdown(f"""
                 <div class="metric-container">
                     <h4>{t('statistics')}</h4>
@@ -1598,6 +1935,22 @@ with rolling_tab:
                     <p>{t('max')} {stats_1y['max']:.2f}%</p>
                 </div>
                 """, unsafe_allow_html=True)
+=======
+                # Erstelle eine Tabelle für die Statistiken im gleichen Format wie die anderen Tabellen
+                stats_data = {
+                    "Metric": ["Durchschnitt", "Standardabweichung", "Minimum", "Maximum"],
+                    "Value": [
+                        f"{stats_1y['avg']:.2f}%",
+                        f"{stats_1y['std']:.2f}%",
+                        f"{stats_1y['min']:.2f}%",
+                        f"{stats_1y['max']:.2f}%"
+                    ]
+                }
+                
+                # Konvertiere zu DataFrame und zeige als HTML-Tabelle an
+                stats_df = pd.DataFrame(stats_data)
+                st.write(stats_df.to_html(escape=False, index=False, classes='simple-table'), unsafe_allow_html=True)
+>>>>>>> 9899509 (Final version for website (hopefully))
         else:
             st.warning(t('not_enough_data').format('1 ' + t('one_year'), window_size_1y))
     
@@ -1611,6 +1964,7 @@ with rolling_tab:
                 get_image_download_link(fig_3y, filename_3y, "📥 " + t('download_rolling').format('3 ' + t('three_years').split()[-1]))
                 
                 # Show statistics
+<<<<<<< HEAD
                 st.markdown(f"""
                 <div class="metric-container">
                     <h4>{t('statistics')}</h4>
@@ -1620,6 +1974,22 @@ with rolling_tab:
                     <p>{t('max')} {stats_3y['max']:.2f}%</p>
                 </div>
                 """, unsafe_allow_html=True)
+=======
+                # Erstelle eine Tabelle für die Statistiken im gleichen Format wie die anderen Tabellen
+                stats_data = {
+                    "Metric": ["Durchschnitt", "Standardabweichung", "Minimum", "Maximum"],
+                    "Value": [
+                        f"{stats_3y['avg']:.2f}%",
+                        f"{stats_3y['std']:.2f}%",
+                        f"{stats_3y['min']:.2f}%",
+                        f"{stats_3y['max']:.2f}%"
+                    ]
+                }
+                
+                # Konvertiere zu DataFrame und zeige als HTML-Tabelle an
+                stats_df = pd.DataFrame(stats_data)
+                st.write(stats_df.to_html(escape=False, index=False, classes='simple-table'), unsafe_allow_html=True)
+>>>>>>> 9899509 (Final version for website (hopefully))
         else:
             st.warning(t('not_enough_data').format('3 ' + t('three_years').split()[-1], window_size_3y))
 
@@ -1642,17 +2012,38 @@ with rolling_tab:
             has_data = True
         
         if has_data:
+<<<<<<< HEAD
             # Rename columns for display
             rolling_monthly.columns = [
                 '3 ' + t('three_months').split()[-1] if 'rolling_3m_return' in rolling_monthly.columns else '',
                 '1 ' + t('one_year') if 'rolling_1y_return' in rolling_monthly.columns else '',
                 '3 ' + t('three_years').split()[-1] if 'rolling_3y_return' in rolling_monthly.columns else ''
             ]
+=======
+            # Only use column names that actually exist in the DataFrame
+            columns_map = {
+                'rolling_3m_return': '3 ' + t('three_months').split()[-1],
+                'rolling_1y_return': '1 ' + t('one_year'),
+                'rolling_3y_return': '3 ' + t('three_years').split()[-1]
+            }
+            
+            # Rename only the columns that exist
+            new_columns = {}
+            for old_col, new_col in columns_map.items():
+                if old_col in rolling_monthly.columns:
+                    new_columns[old_col] = new_col
+                    
+            rolling_monthly = rolling_monthly.rename(columns=new_columns)
+>>>>>>> 9899509 (Final version for website (hopefully))
             
             # Remove empty columns
             rolling_monthly = rolling_monthly.loc[:, rolling_monthly.columns != '']
             
+<<<<<<< HEAD
             # Create comparison plot
+=======
+            # Create comparison plot with larger dimensions and fonts
+>>>>>>> 9899509 (Final version for website (hopefully))
             fig_comparison = go.Figure()
             
             colors = ['rgba(65, 105, 225, 0.8)', 'rgba(255, 102, 0, 0.8)', 'rgba(0, 153, 0, 0.8)']
@@ -1663,6 +2054,7 @@ with rolling_tab:
                         y=rolling_monthly[col],
                         mode='lines',
                         name=col,
+<<<<<<< HEAD
                         line=dict(color=colors[i % len(colors)], width=2)
                     )
                 )
@@ -1673,6 +2065,16 @@ with rolling_tab:
                 xaxis_title=t('date'),
                 yaxis_title=t('return') + " (%)",
                 height=500,
+=======
+                        line=dict(color=colors[i % len(colors)], width=3)  # Increased line width
+                    )
+                )
+            
+            # Adjust layout with larger dimensions and fonts
+            fig_comparison.update_layout(
+                title=t('comparison_title'),
+                height=800,  # Increased height
+>>>>>>> 9899509 (Final version for website (hopefully))
                 template="plotly_white",
                 hovermode="x unified",
                 legend=dict(
@@ -1680,15 +2082,49 @@ with rolling_tab:
                     yanchor="bottom",
                     y=1.02,
                     xanchor="right",
+<<<<<<< HEAD
                     x=1
                 )
+=======
+                    x=1,
+                    font=dict(size=24)  # Increased font size
+                ),
+                title_font=dict(size=24),  # Increased title font size
+                margin=dict(l=60, r=60, t=100, b=60)  # Increased margins
+            )
+            
+            # Update axis fonts
+            fig_comparison.update_xaxes(
+                title_text=t('date'),
+                title_font=dict(size=24),
+                tickfont=dict(size=24)
+            )
+            
+            fig_comparison.update_yaxes(
+                title_text=t('return') + " (%)",
+                title_font=dict(size=24),
+                tickfont=dict(size=24)
+>>>>>>> 9899509 (Final version for website (hopefully))
             )
             
             st.plotly_chart(fig_comparison, use_container_width=True)
             
+<<<<<<< HEAD
             # Download button for comparison chart
             filename_comparison = f"rolling_comparison_{strategy_display_name_for_file}_{period_text}.png"
             get_image_download_link(fig_comparison, filename_comparison, "📥 " + t('download_comparison'))
+=======
+            # Download button for comparison chart with higher resolution
+            filename_comparison = f"rolling_comparison_{strategy_display_name_for_file}_{period_text}.png"
+            get_image_download_link(
+                fig_comparison, 
+                filename_comparison, 
+                "📥 " + t('download_comparison'),
+                width=2400, 
+                height=1600, 
+                scale=3
+            )
+>>>>>>> 9899509 (Final version for website (hopefully))
             
             # Detailed statistics table
             st.markdown(f"<h4>{t('detailed_statistics')}</h4>", unsafe_allow_html=True)
