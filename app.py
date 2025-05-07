@@ -688,6 +688,7 @@ TRANSLATIONS = {
         'detailed_analysis': 'Detailed Analysis',
         'performance_analysis': 'Performance Analysis',
         'risk_analysis': 'Risk Analysis',
+
         'return_analysis': 'Return Analysis',
         'benchmark': 'Equal Weight Benchmark (50/50)'
     },
@@ -871,6 +872,7 @@ if returns_df.empty:
     st.error("No data was loaded. Please check file paths.")
     st.stop()
 
+
 # Calculate weighted portfolio returns and create 50/50 blended benchmark
 quant_data = pd.DataFrame(index=returns_df.index)
 quant_data["Returns"] = 0
@@ -888,6 +890,7 @@ for quant_name in selected_quant_names:
 quant_data["StrategyValue"] = 100 * (1 + quant_data["Returns"]).cumprod()
 quant_data["Benchmark"] = 100 * (1 + quant_data["Benchmark_Returns"]).cumprod()
 quant_data["drawdown"] = -((quant_data["StrategyValue"].cummax() - quant_data["StrategyValue"])/quant_data["StrategyValue"].cummax())*100
+
 quant_data["benchmark_drawdown"] = -((quant_data["Benchmark"].cummax() - quant_data["Benchmark"])/quant_data["Benchmark"].cummax())*100
 quant_data["monthly_returns"] = (1 + quant_data["Returns"]).resample("M").prod() - 1
 
@@ -1021,6 +1024,7 @@ five_year_date = all_dates[all_dates >= five_years_ago].min() if any(all_dates >
 
 # Calculate performance values
 last_date = quant_data.index.max()
+
 
 # Initialize period performances with zeros
 ytd_perf, one_year_perf, three_year_perf, five_year_perf = 0, 0, 0, 0
@@ -1181,6 +1185,8 @@ with performance_tab:
         <h3 class="metric-section-header">📈 """ + t('performance_drawdown') + """</h3>
     """, unsafe_allow_html=True)
 
+
+
     # Create subplot with two charts - remove subplot titles to avoid "undefined" text
     fig = make_subplots(rows=2, cols=1, 
                     shared_xaxes=True,
@@ -1194,6 +1200,7 @@ with performance_tab:
             y=filtered_data['StrategyValue'],
             mode='lines',
             name=t('strategy_value'),
+
             line=dict(color='rgba(65, 105, 225, 0.8)', width=1),  # Increased line width
             fill='tozeroy',
             fillcolor='rgba(65, 105, 225, 0.1)'
@@ -1208,12 +1215,14 @@ with performance_tab:
             y=filtered_data['Benchmark'],
             mode='lines',
             name=t('benchmark'),
+
             line=dict(color='rgba(255, 85, 0, 0.8)', width=1),  # Increased line width
             fill='tozeroy',
             fillcolor='rgba(255, 85, 0, 0.1)'
         ),
         row=1, col=1
     )
+
 
     # Drawdown plots
     # Strategy drawdown
@@ -1222,6 +1231,7 @@ with performance_tab:
             x=filtered_data.index,
             y=filtered_data['drawdown'],
             mode='lines',
+
             name=t('strategy') + " " + t('drawdown'),
             line=dict(color='rgba(65, 105, 225, 0.8)', width=1),  # Increased line width
             fill='tozeroy',
@@ -1244,6 +1254,7 @@ with performance_tab:
         row=2, col=1
     )
 
+
     # Adjust layout with larger font sizes and increased height and margins
     fig.update_layout(
         height=900,  # Increased height by factor of 1.5 (from 600 to 900)
@@ -1260,6 +1271,7 @@ with performance_tab:
         ),
         template="plotly_white"  # Use a clean white template
     )
+
 
     # Add explicit titles to each subplot instead of using subplot_titles
     fig.update_yaxes(
@@ -1293,7 +1305,9 @@ with performance_tab:
     # Display chart
     st.plotly_chart(fig, use_container_width=True)
     
+
     # Add download button for performance chart with higher resolution
+
     strategy_name = "_".join(selected_quant_files) if len(selected_quant_files) > 1 else selected_quant_files[0]
     strategy_display_name_for_file = "_".join(selected_quant_names)
     period_text = selected_period if selected_period else f"{start_date.strftime('%Y%m%d')}-{end_date.strftime('%Y%m%d')}"
@@ -1454,6 +1468,7 @@ with returns_tab:
                 title=None,
                 side='top',
                 tickangle=0,
+
                 tickfont=dict(size=24)
             ),
             yaxis=dict(
@@ -1541,6 +1556,7 @@ with rolling_tab:
         min_return = data[column].min()
         max_return = data[column].max()
         
+
         # Create plot with increased dimensions
         fig = go.Figure()
         
@@ -1551,6 +1567,7 @@ with rolling_tab:
                 y=data[column],
                 mode='lines',
                 name=f"{period_name} {t('rolling_returns')}",
+
                 line=dict(color=color, width=1.5)  # Increased line width
             )
         )
@@ -1562,6 +1579,7 @@ with rolling_tab:
             y0=avg_return,
             x1=data.index.max(),
             y1=avg_return,
+
             line=dict(color="green", width=1, dash="dash")  # Increased line width
         )
         
@@ -1572,6 +1590,7 @@ with rolling_tab:
             y0=avg_return + std_dev,
             x1=data.index.max(),
             y1=avg_return + std_dev,
+
             line=dict(color="gray", width=1, dash="dot")  # Increased line width
         )
         
@@ -1581,6 +1600,7 @@ with rolling_tab:
             y0=avg_return - std_dev,
             x1=data.index.max(),
             y1=avg_return - std_dev,
+
             line=dict(color="gray", width=1, dash="dot")  # Increased line width
         )
         
@@ -1671,6 +1691,7 @@ with rolling_tab:
                 get_image_download_link(fig_3m, filename_3m, "📥 " + t('download_rolling').format('3 ' + t('three_months').split()[-1]))
                 
                 # Show statistics
+
                 # Erstelle eine Tabelle für die Statistiken im gleichen Format wie die anderen Tabellen
                 stats_data = {
                     "Metric": ["Durchschnitt", "Standardabweichung", "Minimum", "Maximum"],
@@ -1691,6 +1712,7 @@ with rolling_tab:
     # 1-Year Rolling Returns Tab
     with rolling_tabs[1]:
         if not rolling_data_1y.empty:
+
             fig_1y, stats_1y = create_rolling_returns_plot(rolling_data_1y, 'rolling_1y_return', 'rgba(255, 102, 0, 0.8)', t('one_year'), window_size_1y)
             if fig_1y:
                 st.plotly_chart(fig_1y, use_container_width=True)
@@ -1698,6 +1720,7 @@ with rolling_tab:
                 get_image_download_link(fig_1y, filename_1y, "📥 " + t('download_rolling').format('1 ' + t('one_year')))
                 
                 # Show statistics
+
                 # Erstelle eine Tabelle für die Statistiken im gleichen Format wie die anderen Tabellen
                 stats_data = {
                     "Metric": ["Durchschnitt", "Standardabweichung", "Minimum", "Maximum"],
@@ -1725,6 +1748,7 @@ with rolling_tab:
                 get_image_download_link(fig_3y, filename_3y, "📥 " + t('download_rolling').format('3 ' + t('three_years').split()[-1]))
                 
                 # Show statistics
+
                 # Erstelle eine Tabelle für die Statistiken im gleichen Format wie die anderen Tabellen
                 stats_data = {
                     "Metric": ["Durchschnitt", "Standardabweichung", "Minimum", "Maximum"],
@@ -1761,6 +1785,7 @@ with rolling_tab:
             has_data = True
         
         if has_data:
+
             # Only use column names that actually exist in the DataFrame
             columns_map = {
                 'rolling_3m_return': '3 ' + t('three_months').split()[-1],
@@ -1790,6 +1815,7 @@ with rolling_tab:
                         y=rolling_monthly[col],
                         mode='lines',
                         name=col,
+
                         line=dict(color=colors[i % len(colors)], width=3)  # Increased line width
                     )
                 )
@@ -1805,6 +1831,7 @@ with rolling_tab:
                     yanchor="bottom",
                     y=1.02,
                     xanchor="right",
+
                     x=1,
                     font=dict(size=24)  # Increased font size
                 ),
@@ -1827,6 +1854,7 @@ with rolling_tab:
             
             st.plotly_chart(fig_comparison, use_container_width=True)
             
+
             # Download button for comparison chart with higher resolution
             filename_comparison = f"rolling_comparison_{strategy_display_name_for_file}_{period_text}.png"
             get_image_download_link(
